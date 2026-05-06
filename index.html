@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>数学超人学院 - 乘法口诀表</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/animations.css">
+  <link rel="stylesheet" href="css/games.css">
+</head>
+<body>
+  <!-- 星空背景 -->
+  <div class="stars" id="stars"></div>
+
+  <!-- 首页 - 超人基地 -->
+  <section id="page-home" class="page active">
+    <div class="home-container">
+      <div class="hero-character" id="homeHero">
+        <div class="hero-body">
+          <div class="hero-head">
+            <div class="hero-eyes"></div>
+            <div class="hero-smile"></div>
+          </div>
+          <div class="hero-torso">
+            <div class="hero-emblem">x</div>
+          </div>
+          <div class="hero-cape"></div>
+          <div class="hero-arm left"></div>
+          <div class="hero-arm right"></div>
+        </div>
+      </div>
+      <h1 class="main-title">
+        <span class="title-text">数学超人学院</span>
+        <div class="title-glow"></div>
+      </h1>
+      <p class="subtitle">化身数学小超人，掌握乘法口诀！</p>
+      <div class="menu-grid">
+        <button class="menu-btn" data-page="builder">
+          <div class="btn-icon">🏗️</div>
+          <div class="btn-text">动手建造区</div>
+          <div class="btn-glow"></div>
+        </button>
+        <button class="menu-btn" data-page="table">
+          <div class="btn-icon">📖</div>
+          <div class="btn-text">口诀表进度</div>
+          <div class="btn-glow"></div>
+        </button>
+        <button class="menu-btn" data-page="learn">
+          <div class="btn-icon">🎓</div>
+          <div class="btn-text">超能力训练</div>
+          <div class="btn-glow"></div>
+        </button>
+        <button class="menu-btn" data-page="games">
+          <div class="btn-icon">🎮</div>
+          <div class="btn-text">实战任务</div>
+          <div class="btn-glow"></div>
+        </button>
+        <button class="menu-btn" data-page="achievements">
+          <div class="btn-icon">⭐</div>
+          <div class="btn-text">英雄殿堂</div>
+          <div class="btn-glow"></div>
+        </button>
+      </div>
+      <div class="stats-bar">
+        <div class="stat">
+          <span class="stat-icon">⭐</span>
+          <span class="stat-value" id="totalStars">0</span>
+          <span class="stat-label">星星</span>
+        </div>
+        <div class="stat">
+          <span class="stat-icon">🔥</span>
+          <span class="stat-value" id="streak">0</span>
+          <span class="stat-label">连击</span>
+        </div>
+        <div class="stat">
+          <span class="stat-icon">📊</span>
+          <span class="stat-value" id="mastery">0%</span>
+          <span class="stat-label">掌握度</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 动手建造区 -->
+  <section id="page-builder" class="page">
+    <div class="page-header">
+      <button class="back-btn" data-page="home">← 返回基地</button>
+      <h2>动手建造区</h2>
+      <button class="btn-help" id="showTutorial" title="怎么玩？">❓</button>
+    </div>
+
+    <!-- 挑战横幅 -->
+    <div class="challenge-banner" id="challengeBanner" style="display:none;">
+      <span class="challenge-icon">🦸</span>
+      <span class="challenge-text" id="challengeText"></span>
+      <button class="challenge-close" id="closeChallenge">✕</button>
+    </div>
+
+    <!-- 建造区主内容 -->
+    <div class="builder-layout">
+      <!-- 左侧：物品栏 + 操作按钮 -->
+      <div class="builder-left">
+        <div class="items-shelf" id="itemsShelf">
+          <div class="shelf-label">拖拽数字</div>
+          <div class="shelf-items" id="shelfItems"></div>
+        </div>
+        <div class="builder-actions">
+          <button class="btn-action btn-clear" id="clearBuilder">清空</button>
+          <button class="btn-action btn-challenge" id="randomChallenge">挑战</button>
+          <button class="btn-action btn-add-base" id="addBase">+基地</button>
+        </div>
+      </div>
+
+      <!-- 右侧：超人基地 -->
+      <div class="builder-right">
+        <div class="bases-hint">拖到基地里</div>
+        <div class="bases-container" id="basesContainer"></div>
+      </div>
+    </div>
+
+    <!-- 结果显示 -->
+    <div class="result-bar">
+      <div class="result-addition" id="resultAddition"></div>
+      <div class="result-multiplication" id="resultMultiplication" style="display:none;"></div>
+      <div class="result-chinese" id="resultChinese"></div>
+      <button class="btn-commutative" id="btnCommutative" style="display:none;">转一转</button>
+    </div>
+
+    <!-- 教程遮罩层 -->
+    <div class="tutorial-overlay" id="tutorialOverlay" style="display:none;"></div>
+  </section>
+
+  <!-- 口诀表进度 -->
+  <section id="page-table" class="page">
+    <div class="page-header">
+      <button class="back-btn" data-page="home">← 返回基地</button>
+      <h2>口诀表进度</h2>
+      <div class="unlock-progress">
+        <span>已解锁: </span>
+        <span id="unlockCount">1</span>/9
+      </div>
+    </div>
+
+    <!-- 口诀进度环 -->
+    <div class="progress-rings" id="progressRings">
+      <div class="ring-item" data-row="1"><div class="ring-circle unlocked"><span class="ring-number">1</span></div><div class="ring-label">1的口诀</div></div>
+      <div class="ring-item" data-row="2"><div class="ring-circle locked"><span class="ring-number">2</span><span class="ring-lock">🔒</span></div><div class="ring-label">2的口诀</div></div>
+      <div class="ring-item" data-row="3"><div class="ring-circle locked"><span class="ring-number">3</span><span class="ring-lock">🔒</span></div><div class="ring-label">3的口诀</div></div>
+      <div class="ring-item" data-row="4"><div class="ring-circle locked"><span class="ring-number">4</span><span class="ring-lock">🔒</span></div><div class="ring-label">4的口诀</div></div>
+      <div class="ring-item" data-row="5"><div class="ring-circle locked"><span class="ring-number">5</span><span class="ring-lock">🔒</span></div><div class="ring-label">5的口诀</div></div>
+      <div class="ring-item" data-row="6"><div class="ring-circle locked"><span class="ring-number">6</span><span class="ring-lock">🔒</span></div><div class="ring-label">6的口诀</div></div>
+      <div class="ring-item" data-row="7"><div class="ring-circle locked"><span class="ring-number">7</span><span class="ring-lock">🔒</span></div><div class="ring-label">7的口诀</div></div>
+      <div class="ring-item" data-row="8"><div class="ring-circle locked"><span class="ring-number">8</span><span class="ring-lock">🔒</span></div><div class="ring-label">8的口诀</div></div>
+      <div class="ring-item" data-row="9"><div class="ring-circle locked"><span class="ring-number">9</span><span class="ring-lock">🔒</span></div><div class="ring-label">9的口诀</div></div>
+    </div>
+
+    <!-- 当前口诀展示 -->
+    <div class="current-row" id="currentRow">
+      <div class="row-title">当前: <span id="currentRowNum">1</span>的口诀</div>
+      <div class="row-chant" id="rowChant"></div>
+      <div class="row-buttons">
+        <button class="btn-pattern" id="btnPattern">发现规律</button>
+        <button class="btn-quiz" id="btnQuiz">小测验</button>
+      </div>
+    </div>
+
+    <!-- 规律展示区 -->
+    <div class="pattern-section" id="patternSection" style="display:none;">
+      <div class="pattern-content" id="patternContent"></div>
+      <button class="btn-close-pattern" id="closePattern">关闭</button>
+    </div>
+
+    <!-- 小测验弹窗 -->
+    <div class="modal" id="quizModal">
+      <div class="modal-content quiz-content">
+        <h3>口诀小测验</h3>
+        <div class="quiz-question" id="quizQuestion"></div>
+        <div class="quiz-options" id="quizOptions"></div>
+        <div class="quiz-feedback" id="quizFeedback"></div>
+        <div class="quiz-progress"><span id="quizCurrent">1</span>/3</div>
+      </div>
+    </div>
+
+    <!-- 解锁动画弹窗 -->
+    <div class="modal" id="unlockModal">
+      <div class="modal-content unlock-content">
+        <div class="unlock-hero"></div>
+        <div class="unlock-text" id="unlockText"></div>
+        <div class="unlock-chant" id="unlockChant"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 超能力训练 -->
+  <section id="page-learn" class="page">
+    <div class="page-header">
+      <button class="back-btn" data-page="home">← 返回基地</button>
+      <h2>超能力训练</h2>
+    </div>
+    <div class="learn-container">
+      <div class="learn-controls">
+        <div class="equation-select">
+          <label>选择算式：</label>
+          <select id="learnA">
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3" selected>3</option>
+            <option value="4">4</option>
+            <option value="5">5</option>
+            <option value="6">6</option>
+            <option value="7">7</option>
+            <option value="8">8</option>
+            <option value="9">9</option>
+          </select>
+          <span class="operator">×</span>
+          <select id="learnB">
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4" selected>4</option>
+            <option value="5">5</option>
+            <option value="6">6</option>
+            <option value="7">7</option>
+            <option value="8">8</option>
+            <option value="9">9</option>
+          </select>
+          <button class="btn-primary" id="learnStart">开始演示</button>
+        </div>
+        <div class="learn-playback">
+          <button class="btn-secondary" id="learnPrev">上一步</button>
+          <button class="btn-primary" id="learnPlay">播放</button>
+          <button class="btn-secondary" id="learnNext">下一步</button>
+          <button class="btn-secondary" id="learnReset">重播</button>
+        </div>
+      </div>
+      <div class="learn-stage" id="learnStage">
+        <!-- 动画演示区域 -->
+        <div class="stage-hero" id="stageHero"></div>
+        <div class="stage-content" id="stageContent"></div>
+        <div class="stage-result" id="stageResult"></div>
+      </div>
+      <div class="learn-info">
+        <div class="info-equation" id="learnEquation">3 × 4 = ?</div>
+        <div class="info-chinese" id="learnChinese"></div>
+        <div class="info-step" id="learnStep">点击"播放"开始演示</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 实战任务 - 游戏选择 -->
+  <section id="page-games" class="page">
+    <div class="page-header">
+      <button class="back-btn" data-page="home">← 返回基地</button>
+      <h2>实战任务</h2>
+    </div>
+    <div class="games-select">
+      <div class="game-card" data-game="balloon">
+        <div class="game-preview balloon-preview">
+          <div class="balloon-sample"></div>
+          <div class="balloon-sample"></div>
+          <div class="balloon-sample"></div>
+        </div>
+        <h3>能量气球大作战</h3>
+        <p>点击正确答案的气球！</p>
+        <div class="game-difficulty">
+          <button class="diff-btn" data-diff="easy">新手训练</button>
+          <button class="diff-btn" data-diff="medium">实战任务</button>
+          <button class="diff-btn" data-diff="hard">终极挑战</button>
+        </div>
+      </div>
+      <div class="game-card" data-game="star">
+        <div class="game-preview star-preview">
+          <div class="star-sample"></div>
+          <div class="hero-mini"></div>
+        </div>
+        <h3>星际收集者</h3>
+        <p>接住正确答案的星星！</p>
+        <button class="game-start-btn" data-game="star">开始任务</button>
+      </div>
+      <div class="game-card" data-game="cipher">
+        <div class="game-preview cipher-preview">
+          <div class="cipher-lock"></div>
+        </div>
+        <h3>口诀密码破译</h3>
+        <p>破解密码锁！</p>
+        <button class="game-start-btn" data-game="cipher">开始任务</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 游戏区域 - 气球大作战 -->
+  <section id="page-balloon" class="page game-page">
+    <div class="game-header">
+      <div class="game-score">
+        <span class="score-icon">⭐</span>
+        <span class="score-value" id="balloonScore">0</span>
+      </div>
+      <div class="game-question" id="balloonQuestion">3 × 4 = ?</div>
+      <div class="game-lives" id="balloonLives">❤️❤️❤️</div>
+      <button class="game-quit" data-page="games">退出</button>
+    </div>
+    <div class="game-area" id="balloonArea">
+      <!-- 超人角色 -->
+      <div class="game-hero" id="balloonHero"></div>
+      <!-- 气球容器 -->
+      <div class="balloons-container" id="balloonsContainer"></div>
+      <!-- 粒子效果容器 -->
+      <div class="particles" id="balloonParticles"></div>
+    </div>
+    <div class="game-timer" id="balloonTimer" style="display:none;">
+      <div class="timer-bar"><div class="timer-fill" id="balloonTimerFill"></div></div>
+    </div>
+  </section>
+
+  <!-- 游戏区域 - 星际收集者 -->
+  <section id="page-star" class="page game-page">
+    <div class="game-header">
+      <div class="game-score">
+        <span class="score-icon">⭐</span>
+        <span class="score-value" id="starScore">0</span>
+      </div>
+      <div class="game-question" id="starQuestion">3 × 4 = ?</div>
+      <div class="game-lives" id="starLives">❤️❤️❤️</div>
+      <div class="game-combo" id="starCombo" style="display:none;">
+        连击 x<span id="comboCount">0</span>
+      </div>
+      <button class="game-quit" data-page="games">退出</button>
+    </div>
+    <div class="game-area star-area" id="starArea">
+      <!-- 超人收集器 -->
+      <div class="star-collector" id="starCollector">
+        <div class="collector-hero"></div>
+      </div>
+      <!-- 星星容器 -->
+      <div class="stars-container" id="starsContainer"></div>
+    </div>
+  </section>
+
+  <!-- 游戏区域 - 口诀密码破译 -->
+  <section id="page-cipher" class="page game-page">
+    <div class="game-header">
+      <div class="game-score">
+        <span class="score-icon">⭐</span>
+        <span class="score-value" id="cipherScore">0</span>
+      </div>
+      <div class="game-progress">
+        <span id="cipherProgress">0</span>/10
+      </div>
+      <button class="game-quit" data-page="games">退出</button>
+    </div>
+    <div class="cipher-container">
+      <div class="cipher-lock" id="cipherLock">
+        <div class="lock-body">
+          <div class="lock-display" id="cipherDisplay">三四 ____</div>
+          <div class="lock-hint" id="cipherHint">输入正确答案解锁</div>
+        </div>
+      </div>
+      <div class="cipher-keypad" id="cipherKeypad">
+        <button class="key-btn" data-key="1">1</button>
+        <button class="key-btn" data-key="2">2</button>
+        <button class="key-btn" data-key="3">3</button>
+        <button class="key-btn" data-key="4">4</button>
+        <button class="key-btn" data-key="5">5</button>
+        <button class="key-btn" data-key="6">6</button>
+        <button class="key-btn" data-key="7">7</button>
+        <button class="key-btn" data-key="8">8</button>
+        <button class="key-btn" data-key="9">9</button>
+        <button class="key-btn key-clear" data-key="clear">清除</button>
+        <button class="key-btn key-zero" data-key="0">0</button>
+        <button class="key-btn key-enter" data-key="enter">确认</button>
+      </div>
+      <div class="cipher-result" id="cipherResult"></div>
+    </div>
+  </section>
+
+  <!-- 英雄殿堂 -->
+  <section id="page-achievements" class="page">
+    <div class="page-header">
+      <button class="back-btn" data-page="home">← 返回基地</button>
+      <h2>英雄殿堂</h2>
+    </div>
+    <div class="achievements-container">
+      <!-- 超人形象 -->
+      <div class="hero-showcase">
+        <div class="showcase-hero" id="showcaseHero">
+          <div class="hero-body equipped">
+            <div class="hero-head">
+              <div class="hero-eyes"></div>
+              <div class="hero-smile"></div>
+            </div>
+            <div class="hero-torso">
+              <div class="hero-emblem">x</div>
+            </div>
+            <div class="hero-cape" id="showcaseCape"></div>
+            <div class="hero-crown" id="showcaseCrown" style="display:none;"></div>
+            <div class="hero-arm left"></div>
+            <div class="hero-arm right"></div>
+          </div>
+        </div>
+        <div class="hero-level">
+          <div class="level-bar">
+            <div class="level-fill" id="levelFill"></div>
+          </div>
+          <div class="level-text">能量等级: <span id="heroLevel">1</span></div>
+        </div>
+      </div>
+
+      <!-- 成就徽章 -->
+      <div class="badges-section">
+        <h3>英雄勋章</h3>
+        <div class="badges-grid" id="badgesGrid">
+          <div class="badge" data-badge="first">
+            <div class="badge-icon">🌟</div>
+            <div class="badge-name">觉醒之力</div>
+            <div class="badge-desc">完成第一次训练</div>
+            <div class="badge-lock">🔒</div>
+          </div>
+          <div class="badge" data-badge="streak10">
+            <div class="badge-icon">🔥</div>
+            <div class="badge-name">连击大师</div>
+            <div class="badge-desc">连续答对10题</div>
+            <div class="badge-lock">🔒</div>
+          </div>
+          <div class="badge" data-badge="table-master">
+            <div class="badge-icon">💪</div>
+            <div class="badge-name">口诀专家</div>
+            <div class="badge-desc">一个口诀表全掌握</div>
+            <div class="badge-lock">🔒</div>
+          </div>
+          <div class="badge" data-badge="all-master">
+            <div class="badge-icon">🦸</div>
+            <div class="badge-name">数学超人</div>
+            <div class="badge-desc">全部口诀表掌握</div>
+            <div class="badge-lock">🔒</div>
+          </div>
+          <div class="badge" data-badge="gamer">
+            <div class="badge-icon">🎮</div>
+            <div class="badge-name">任务达人</div>
+            <div class="badge-desc">所有游戏通关</div>
+            <div class="badge-lock">🔒</div>
+          </div>
+          <div class="badge" data-badge="speed">
+            <div class="badge-icon">⚡</div>
+            <div class="badge-name">闪电侠</div>
+            <div class="badge-desc">60秒答对20题</div>
+            <div class="badge-lock">🔒</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 掌握进度 -->
+      <div class="mastery-section">
+        <h3>口诀掌握度</h3>
+        <div class="mastery-grid" id="masteryGrid">
+          <!-- 动态生成 -->
+        </div>
+      </div>
+
+      <!-- 活跃日历 -->
+      <div class="calendar-section">
+        <h3>最近7天</h3>
+        <div class="calendar-grid" id="calendarGrid">
+          <!-- 动态生成 -->
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 游戏结束弹窗 -->
+  <div class="modal" id="gameOverModal">
+    <div class="modal-content game-over-content">
+      <div class="game-over-hero"></div>
+      <h2 id="gameOverTitle">任务完成！</h2>
+      <div class="game-over-stats">
+        <div class="go-stat">
+          <span class="go-label">得分</span>
+          <span class="go-value" id="goScore">0</span>
+        </div>
+        <div class="go-stat">
+          <span class="go-label">正确率</span>
+          <span class="go-value" id="goAccuracy">0%</span>
+        </div>
+        <div class="go-stat">
+          <span class="go-label">获得星星</span>
+          <span class="go-value" id="goStars">0</span>
+        </div>
+      </div>
+      <div class="game-over-buttons">
+        <button class="btn-primary" id="goRetry">再来一次</button>
+        <button class="btn-secondary" id="goBack">返回选择</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/storage.js"></script>
+  <script src="js/hero.js"></script>
+  <script src="js/table.js"></script>
+  <script src="js/learn.js"></script>
+  <script src="js/games.js"></script>
+  <script src="js/progress.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
