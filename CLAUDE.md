@@ -2,6 +2,11 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+This repo holds two related multiplication-learning tools for Chinese elementary students:
+
+- **Root (`index.html` + `js/`, `css/`)** — "动手建造区", the drag-and-drop builder described below.
+- **`life-math/`** — "生活里的乘法", a WeChat mini program quiz game (life scenarios: clock, money, week, calendar). Separate codebase with its own README and tests; see `life-math/README.md`.
+
 ## Project Overview
 
 "动手建造区" (Hands-on Building Area) - an interactive multiplication table learning tool for Chinese elementary school students. Users drag numbers into "bases" to discover multiplication facts through addition. Pure HTML/CSS/JS, no build tools, no dependencies.
@@ -9,6 +14,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## How to Run
 
 Open `index.html` directly in a browser. No server, build step, or package manager required.
+
+For `life-math/`, see its README: browser preview at `life-math/web/index.html`, mini program root is `life-math/` (import into WeChat devtools).
 
 ## Architecture
 

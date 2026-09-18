@@ -1,0 +1,32 @@
+<view class="home">
+  <view class="hero">
+    <view class="hero-title">生活里的乘法</view>
+    <view class="hero-sub">几个几，就是几乘几</view>
+    <view class="hero-stars">⭐ {{totalStars}} / {{maxStars}}</view>
+  </view>
+
+  <view class="level-list">
+    <view
+      wx:for="{{levels}}"
+      wx:key="id"
+      class="level card"
+      data-id="{{item.id}}"
+      bindtap="onTapLevel"
+      hover-class="level-hover"
+    >
+      <view class="level-icon" style="background: {{item.color}}22; border-color: {{item.color}};">{{item.icon}}</view>
+      <view class="level-info">
+        <view class="level-name">{{item.name}}</view>
+        <view class="level-desc">{{item.desc}}</view>
+        <view class="level-meta">
+          <text class="level-stars">{{item.starText}}</text>
+          <text class="level-best" wx:if="{{item.best > 0}}">最高 {{item.best}} 分</text>
+          <text class="level-best" wx:else>{{item.count}} 道题</text>
+        </view>
+      </view>
+      <view class="level-go" style="color: {{item.color}};">开始</view>
+    </view>
+  </view>
+
+  <view class="home-tip">每关 8 道题，答对连成串分数更高</view>
+</view>

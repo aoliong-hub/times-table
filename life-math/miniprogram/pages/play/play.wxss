@@ -1,0 +1,198 @@
+.play {
+  padding: 24rpx 32rpx 60rpx;
+}
+
+/* HUD */
+.hud {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 28rpx;
+}
+
+.hud-score {
+  color: var(--energy-gold);
+  font-weight: bold;
+  font-size: 34rpx;
+}
+
+.hud-combo {
+  margin-left: 20rpx;
+  color: #ff9f43;
+}
+
+.hud-right {
+  color: var(--text-light);
+}
+
+.bar {
+  margin-top: 14rpx;
+  height: 12rpx;
+  border-radius: 999rpx;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+.bar-fill {
+  height: 100%;
+  border-radius: 999rpx;
+  transition: width 0.3s ease;
+}
+
+/* 题目 */
+.question {
+  margin-top: 28rpx;
+  padding: 28rpx 26rpx;
+  display: flex;
+  align-items: flex-start;
+}
+
+.question-icon {
+  font-size: 52rpx;
+  margin-right: 18rpx;
+  flex-shrink: 0;
+}
+
+.question-text {
+  flex: 1;
+  font-size: 36rpx;
+  line-height: 1.6;
+}
+
+/* 图示 */
+.groups {
+  margin-top: 26rpx;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.group {
+  border: 3rpx dashed;
+  border-radius: 20rpx;
+  padding: 12rpx;
+  margin: 8rpx;
+  min-width: 92rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.group-cells {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: 200rpx;
+}
+
+.cell {
+  font-size: 30rpx;
+  line-height: 1.2;
+  padding: 2rpx;
+}
+
+.group-num {
+  font-size: 44rpx;
+  font-weight: bold;
+  padding: 6rpx 16rpx;
+}
+
+.groups-label {
+  margin-top: 12rpx;
+  text-align: center;
+  font-size: 26rpx;
+  color: var(--text-light);
+}
+
+/* 选项 */
+.options {
+  margin-top: 32rpx;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+
+.option {
+  width: 48%;
+  height: 130rpx;
+  margin-bottom: 22rpx;
+  border-radius: 26rpx;
+  background: var(--glass-bg);
+  border: 3rpx solid var(--glass-border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.option-hover {
+  transform: scale(0.96);
+}
+
+.option-num {
+  font-size: 56rpx;
+  font-weight: bold;
+}
+
+.option-unit {
+  font-size: 24rpx;
+  color: var(--text-light);
+  margin-top: 4rpx;
+}
+
+.option.right {
+  background: rgba(0, 255, 136, 0.18);
+  border-color: var(--energy-green);
+  box-shadow: 0 0 26rpx rgba(0, 255, 136, 0.4);
+}
+
+.option.wrong {
+  background: rgba(255, 107, 107, 0.16);
+  border-color: var(--warn-red);
+  opacity: 0.7;
+}
+
+/* 反馈 */
+.feedback {
+  text-align: center;
+  font-size: 34rpx;
+  font-weight: bold;
+  padding: 10rpx 0;
+}
+
+.feedback.right { color: var(--energy-green); }
+.feedback.wrong { color: var(--warn-red); }
+.feedback.retry { color: var(--energy-gold); font-size: 30rpx; }
+
+/* 讲解 */
+.explain {
+  margin-top: 16rpx;
+  padding: 24rpx;
+  text-align: center;
+}
+
+.explain-add {
+  font-size: 30rpx;
+  color: var(--text-light);
+}
+
+.explain-formula {
+  margin-top: 10rpx;
+  font-size: 44rpx;
+  font-weight: bold;
+  color: var(--hero-blue);
+}
+
+.explain-chant {
+  margin-top: 10rpx;
+  font-size: 32rpx;
+  color: var(--energy-gold);
+  letter-spacing: 2rpx;
+}
+
+.quit {
+  margin-top: 40rpx;
+  padding: 20rpx 0;
+  font-size: 28rpx;
+}

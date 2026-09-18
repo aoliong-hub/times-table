@@ -1,0 +1,42 @@
+/* app.wxss - 全局样式，沿用 times-table 的深蓝玻璃拟态主题 */
+page {
+  --hero-blue: #1E90FF;
+  --energy-gold: #FFD700;
+  --energy-green: #00FF88;
+  --warn-red: #FF6B6B;
+  --bg-dark: #0a1628;
+  --bg-darker: #1a2a4a;
+  --text-white: #ffffff;
+  --text-light: #b8c6db;
+  --glass-bg: rgba(255, 255, 255, 0.08);
+  --glass-border: rgba(255, 255, 255, 0.15);
+
+  background: linear-gradient(160deg, #0a1628 0%, #1a2a4a 55%, #0d1f3c 100%);
+  color: var(--text-white);
+  font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  min-height: 100vh;
+}
+
+.card {
+  background: var(--glass-bg);
+  border: 2rpx solid var(--glass-border);
+  border-radius: 28rpx;
+  backdrop-filter: blur(10rpx);
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #1E90FF, #00c6ff);
+  color: #fff;
+  border-radius: 999rpx;
+  font-weight: bold;
+  text-align: center;
+  box-shadow: 0 8rpx 24rpx rgba(30, 144, 255, 0.35);
+}
+
+.btn-ghost {
+  background: var(--glass-bg);
+  border: 2rpx solid var(--glass-border);
+  color: var(--text-light);
+  border-radius: 999rpx;
+  text-align: center;
+}

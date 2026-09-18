@@ -1,0 +1,32 @@
+<view class="result" wx:if="{{level}}">
+  <view class="badge" style="border-color: {{level.color}};">{{level.icon}}</view>
+  <view class="stars">{{starText}}</view>
+  <view class="word">{{word}}</view>
+
+  <view class="score card">
+    <view class="score-num">{{score}}</view>
+    <view class="score-max">满分 {{max}}</view>
+    <view class="score-new" wx:if="{{isNewBest}}">🎉 新纪录！</view>
+    <view class="score-new" wx:else>最高 {{best}} 分</view>
+  </view>
+
+  <view class="stats card">
+    <view class="stat">
+      <view class="stat-num" style="color: var(--energy-green);">{{right}}</view>
+      <view class="stat-label">一次答对</view>
+    </view>
+    <view class="stat">
+      <view class="stat-num" style="color: var(--warn-red);">{{wrong}}</view>
+      <view class="stat-label">没答对</view>
+    </view>
+    <view class="stat">
+      <view class="stat-num" style="color: #ff9f43;">{{combo}}</view>
+      <view class="stat-label">最长连对</view>
+    </view>
+  </view>
+
+  <view class="actions">
+    <view class="btn-primary act" bindtap="onTapReplay">再玩一次</view>
+    <view class="btn-ghost act" bindtap="onTapHome">回到地图</view>
+  </view>
+</view>

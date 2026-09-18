@@ -1,0 +1,56 @@
+<view class="play" wx:if="{{q}}">
+  <!-- 顶部状态条 -->
+  <view class="hud">
+    <view class="hud-left">
+      <text class="hud-score">⭐ {{score}}</text>
+      <text class="hud-combo" wx:if="{{combo >= 2}}">🔥 连对 {{combo}}</text>
+    </view>
+    <view class="hud-right">第 {{done + 1}} / {{total}} 题</view>
+  </view>
+  <view class="bar">
+    <view class="bar-fill" style="width: {{done * 100 / total}}%; background: {{level.color}};"></view>
+  </view>
+
+  <!-- 题目 -->
+  <view class="question card">
+    <view class="question-icon">{{level.icon}}</view>
+    <view class="question-text">{{q.text}}</view>
+  </view>
+
+  <!-- 图示：几份，每份几个 -->
+  <view class="groups">
+    <view class="group" wx:for="{{groupCells}}" wx:key="index" style="border-color: {{level.color}}66;">
+      <view class="group-cells" wx:if="{{item.cells.length > 0}}">
+        <text class="cell" wx:for="{{item.cells}}" wx:for-item="c" wx:for-index="ci" wx:key="ci">{{c}}</text>
+      </view>
+      <view class="group-num" wx:else style="color: {{level.color}};">{{item.label}}</view>
+    </view>
+  </view>
+  <view class="groups-label">{{q.groupLabel}}，每份 {{q.per}}</view>
+
+  <!-- 选项 -->
+  <view class="options">
+    <view
+      wx:for="{{options}}"
+      wx:key="value"
+      class="option {{item.state}}"
+      data-value="{{item.value}}"
+      bindtap="onTapOption"
+      hover-class="option-hover"
+    >
+      <text class="option-num">{{item.value}}</text>
+      <text class="option-unit">{{q.unit}}</text>
+    </view>
+  </view>
+
+  <!-- 反馈 + 讲解 -->
+  <view class="feedback {{feedbackType}}" wx:if="{{feedback}}">{{feedback}}</view>
+
+  <view class="explain card" wx:if="{{showExplain}}">
+    <view class="explain-add" wx:if="{{q.addition}}">{{q.addition}}</view>
+    <view class="explain-formula">{{q.formula}}</view>
+    <view class="explain-chant" wx:if="{{q.chant}}">口诀：{{q.chant}}</view>
+  </view>
+
+  <view class="quit btn-ghost" bindtap="onTapQuit">退出本关</view>
+</view>

@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>生活里的乘法 - 浏览器预览版</title>
+  <link rel="stylesheet" href="preview.css">
+</head>
+<body>
+  <div class="phone">
+    <!-- 关卡地图 -->
+    <section id="screen-home" class="screen active">
+      <div class="hero">
+        <div class="hero-title">生活里的乘法</div>
+        <div class="hero-sub">几个几，就是几乘几</div>
+        <div class="hero-stars" id="totalStars">⭐ 0 / 15</div>
+      </div>
+      <div class="level-list" id="levelList"></div>
+      <div class="home-tip">每关 8 道题，答对连成串分数更高</div>
+    </section>
+
+    <!-- 答题 -->
+    <section id="screen-play" class="screen">
+      <div class="hud">
+        <div class="hud-left">
+          <span class="hud-score" id="hudScore">⭐ 0</span>
+          <span class="hud-combo" id="hudCombo"></span>
+        </div>
+        <div class="hud-right" id="hudProgress"></div>
+      </div>
+      <div class="bar"><div class="bar-fill" id="barFill"></div></div>
+
+      <div class="question card">
+        <div class="question-icon" id="questionIcon"></div>
+        <div class="question-text" id="questionText"></div>
+      </div>
+
+      <div class="groups" id="groups"></div>
+      <div class="groups-label" id="groupsLabel"></div>
+
+      <div class="options" id="options"></div>
+      <div class="feedback" id="feedback"></div>
+      <div class="explain card" id="explain" style="display:none;"></div>
+
+      <button class="btn-ghost quit" id="btnQuit">退出本关</button>
+    </section>
+
+    <!-- 成绩 -->
+    <section id="screen-result" class="screen">
+      <div class="badge" id="resultBadge"></div>
+      <div class="stars" id="resultStars"></div>
+      <div class="word" id="resultWord"></div>
+      <div class="score card">
+        <div class="score-num" id="resultScore">0</div>
+        <div class="score-max" id="resultMax"></div>
+        <div class="score-new" id="resultBest"></div>
+      </div>
+      <div class="stats card" id="resultStats"></div>
+      <div class="actions">
+        <button class="btn-primary act" id="btnReplay">再玩一次</button>
+        <button class="btn-ghost act" id="btnHome">回到地图</button>
+      </div>
+    </section>
+  </div>
+
+  <script src="../miniprogram/core/questions.js"></script>
+  <script src="../miniprogram/core/game.js"></script>
+  <script src="../miniprogram/core/progress.js"></script>
+  <script src="preview.js"></script>
+</body>
+</html>

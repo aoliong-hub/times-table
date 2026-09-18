@@ -1,0 +1,15 @@
+{
+  "pages": [
+    "pages/home/home",
+    "pages/play/play",
+    "pages/result/result"
+  ],
+  "window": {
+    "navigationBarBackgroundColor": "#0a1628",
+    "navigationBarTextStyle": "white",
+    "navigationBarTitleText": "生活里的乘法",
+    "backgroundColor": "#0a1628"
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json"
+}

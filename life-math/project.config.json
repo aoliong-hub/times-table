@@ -1,0 +1,15 @@
+{
+  "description": "生活里的乘法 - 一年级乘法闯关小程序",
+  "projectname": "life-math",
+  "appid": "touristappid",
+  "miniprogramRoot": "miniprogram/",
+  "compileType": "miniprogram",
+  "libVersion": "3.5.5",
+  "setting": {
+    "urlCheck": false,
+    "es6": true,
+    "enhance": true,
+    "minified": true,
+    "postcss": true
+  }
+}

@@ -1,0 +1,100 @@
+.home {
+  padding: 40rpx 32rpx 60rpx;
+}
+
+.hero {
+  text-align: center;
+  padding: 30rpx 0 46rpx;
+}
+
+.hero-title {
+  font-size: 60rpx;
+  font-weight: bold;
+  color: var(--energy-gold);
+  text-shadow: 0 0 30rpx rgba(255, 215, 0, 0.4);
+}
+
+.hero-sub {
+  margin-top: 14rpx;
+  font-size: 30rpx;
+  color: var(--text-light);
+}
+
+.hero-stars {
+  margin-top: 24rpx;
+  display: inline-block;
+  padding: 10rpx 32rpx;
+  border-radius: 999rpx;
+  background: var(--glass-bg);
+  border: 2rpx solid var(--glass-border);
+  font-size: 30rpx;
+}
+
+.level {
+  display: flex;
+  align-items: center;
+  padding: 26rpx 24rpx;
+  margin-bottom: 24rpx;
+}
+
+.level-hover {
+  transform: scale(0.98);
+  opacity: 0.85;
+}
+
+.level-icon {
+  width: 108rpx;
+  height: 108rpx;
+  border-radius: 26rpx;
+  border: 3rpx solid;
+  font-size: 56rpx;
+  line-height: 108rpx;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.level-info {
+  flex: 1;
+  margin-left: 24rpx;
+  min-width: 0;
+}
+
+.level-name {
+  font-size: 36rpx;
+  font-weight: bold;
+}
+
+.level-desc {
+  margin-top: 8rpx;
+  font-size: 26rpx;
+  color: var(--text-light);
+}
+
+.level-meta {
+  margin-top: 12rpx;
+  font-size: 24rpx;
+}
+
+.level-stars {
+  color: var(--energy-gold);
+  letter-spacing: 4rpx;
+}
+
+.level-best {
+  margin-left: 16rpx;
+  color: var(--text-light);
+}
+
+.level-go {
+  font-size: 30rpx;
+  font-weight: bold;
+  flex-shrink: 0;
+  padding-left: 16rpx;
+}
+
+.home-tip {
+  margin-top: 30rpx;
+  text-align: center;
+  font-size: 26rpx;
+  color: var(--text-light);
+}
