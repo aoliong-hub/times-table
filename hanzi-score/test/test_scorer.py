@@ -321,6 +321,16 @@ def mock带几何时透传且不影响分数():
     assert b["geometry"] is None and b["geometry_overlay"] is None
 
 
+def mock没填目标字时用OCR认出的字():
+    """mock 只跳过 LLM 打分，认字是 OCR 真跑的：结果里的 char 要用认出来的。"""
+    geo = {"ok": True, "char": "人", "lines": [], "recognized": None, "metrics": {}}
+    out = scorer.mock_result(seed=b"img-x", geometry=geo)
+    assert out["char"] == "人", "mock 结果的 char 应用 OCR 认出的字，实际 %s" % out["char"]
+    # 没有几何信息时才退回默认的「木」
+    out2 = scorer.mock_result(seed=b"img-x")
+    assert out2["char"] == "木"
+
+
 if __name__ == "__main__":
     print("scorer.py 自测")
     for fn in (
@@ -353,6 +363,7 @@ if __name__ == "__main__":
         几何提示词认字场景有确认请求,
         messages结构是原图加可选叠加图,
         mock带几何时透传且不影响分数,
+        mock没填目标字时用OCR认出的字,
     ):
         test(fn.__name__, fn)
 

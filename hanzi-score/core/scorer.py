@@ -438,7 +438,12 @@ def mock_result(target_char=None, seed=None, variant=None, geometry=None, overla
             variant = _MOCK_ORDER[int(digest, 16) % len(_MOCK_ORDER)]
 
     raw = dict(MOCK_VARIANTS[variant]["raw"])
-    raw["char"] = target_char or "木"
+    # 没填目标字时用 OCR 真认出来的字（mock 只跳过 LLM 打分，认字是真的）
+    ocr_char = None
+    if geometry and geometry.get("ok"):
+        ocr_char = geometry.get("char") or \
+            ((geometry.get("recognized") or [{}])[0].get("char"))
+    raw["char"] = target_char or ocr_char or "木"
 
     result = normalize(raw, target_char, geometry=geometry)
     result["geometry_overlay"] = overlay
