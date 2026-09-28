@@ -641,22 +641,56 @@ def _quality(metrics):
     return "good"
 
 
-def build_overlay_png(warped, medians, ink=None):
-    """对比图：手写做底 + 标准笔画红色中线；ink 给了就把偏远的墨迹叠淡黄。
+def _dashed_line(img, p1, p2, color, thickness, dash=28, gap=18):
+    """画虚线段（米字格的中线和斜线用）。"""
+    p1 = np.array(p1, np.float64)
+    p2 = np.array(p2, np.float64)
+    length = float(np.linalg.norm(p2 - p1))
+    if length < 1:
+        return
+    direction = (p2 - p1) / length
+    pos = 0.0
+    while pos < length:
+        end = min(pos + dash, length)
+        a = (p1 + direction * pos).astype(int)
+        b = (p1 + direction * end).astype(int)
+        cv2.line(img, tuple(a), tuple(b), color, thickness, cv2.LINE_AA)
+        pos = end + gap
 
-    返回 PNG bytes，失败返回 None。
+
+def draw_rice_grid(size=GRID_SIZE, color=(205, 205, 235), thickness=4):
+    """画一张米字格底板（BGR）：实线外框 + 虚线的横中/竖中/两条对角线。
+
+    手写照片已经透视归一到 0~size 坐标系，标准字 medians 也是同一坐标系，
+    所以格子画在整张画布上，两边自然对齐。
+    """
+    grid = np.full((size, size, 3), 250, np.uint8)      # 纸色
+    cv2.rectangle(grid, (2, 2), (size - 3, size - 3), color, thickness)
+    mid = size // 2
+    _dashed_line(grid, (2, mid), (size - 3, mid), color, max(2, thickness - 2))
+    _dashed_line(grid, (mid, 2), (mid, size - 3), color, max(2, thickness - 2))
+    _dashed_line(grid, (2, 2), (size - 3, size - 3), color, max(2, thickness - 2))
+    _dashed_line(grid, (size - 3, 2), (2, size - 3), color, max(2, thickness - 2))
+    return grid
+
+
+def build_overlay_png(warped, medians, ink=None):
+    """对比图：米字格底板 + 手写笔迹（黑）+ 标准笔画（红色中线，起点画圆点）。
+
+    手写和标准都在同一个透视归一后的米字格里，差距直接可见；
+    ink 给了就把偏离标准较远的墨迹叠淡黄。返回 PNG bytes，失败返回 None。
     """
     try:
-        if ink is not None and cv2.countNonZero(ink):
-            base = np.full_like(warped, 252)
-            base[...] = (245, 250, 252)         # BGR 纸色
-            base[ink > 0] = (34, 34, 34)        # BGR 墨色
-        else:
-            base = cv2.convertScaleAbs(warped, alpha=1.25, beta=30)
+        overlay = draw_rice_grid()
 
-        overlay = base.copy()
-        if ink is not None and medians:
-            dt_std = None
+        if ink is None or not cv2.countNonZero(ink):
+            # 拿不到笔迹 mask 就用提亮后的照片做底（至少能看）
+            photo = cv2.convertScaleAbs(warped, alpha=1.25, beta=30)
+            overlay = cv2.addWeighted(overlay, 0.35, photo, 0.65, 0)
+        else:
+            overlay[ink > 0] = (34, 34, 34)                 # 手写墨迹
+
+        if ink is not None and medians and cv2.countNonZero(ink):
             std_mask = render_standard_mask(medians)
             dt_std = cv2.distanceTransform(cv2.bitwise_not(std_mask), cv2.DIST_L2, 3)
             ys, xs = np.nonzero(ink > 0)
