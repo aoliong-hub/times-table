@@ -40,6 +40,11 @@ bash hanzi-score/launch_server.sh stop | restart | status | foreground
 然后打开 http://localhost:8360/ 。端口用 `HANZI_PORT` 换，模型用 `HANZI_MODEL` 换
 （默认 `gemini-3.5-flash`，得是支持看图的多模态模型）。
 
+在 ModelArts notebook 这类只有 Jupyter 网页入口、看不到本地端口的环境里，
+把平时打开 JupyterLab 的地址末尾路径（如 `/lab`）换成
+`/<notebook-id>/proxy/8360/`（即 TensorBoard 同款代理规则），就能在浏览器里访问
+FastAPI 页面 —— 所以前端的静态资源和接口全部用**相对路径**引用，别改回绝对路径。
+
 日志和 pid 在 `logs/<主机名>/server_<port>.{log,pid}` —— 这个目录在多机共享的 NFS 盘上，
 各机器常起相同端口的同名服务，不按主机名隔离 `stop` 会拿对方机器的 pid 号杀错本机进程。
 

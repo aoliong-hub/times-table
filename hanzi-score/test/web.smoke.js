@@ -99,14 +99,15 @@ function boot({ health, scoreResult, scoreStatus = 200 } = {}) {
   win.Element.prototype.scrollIntoView = function () {};
 
   win.fetch = (url, opts) => {
-    if (url === '/api/health') {
+    // 页面里用的是相对路径（兼容直连与反向代理前缀），按结尾匹配
+    if (/api\/health$/.test(String(url))) {
       return Promise.resolve({
         ok: true,
         status: 200,
         json: () => Promise.resolve(health || { status: 'ok', mock: true, has_api_key: true, model: 'mock' })
       });
     }
-    if (url === '/api/score') {
+    if (/api\/score$/.test(String(url))) {
       calls.score.push(opts);
       return Promise.resolve({
         ok: scoreStatus === 200,

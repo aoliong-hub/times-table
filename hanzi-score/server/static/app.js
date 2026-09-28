@@ -153,7 +153,7 @@
     var target = (el.targetChar.value || '').trim();
     if (target) form.append('target_char', target);
 
-    fetch('/api/score', { method: 'POST', body: form })
+    fetch('api/score', { method: 'POST', body: form })
       .then(function (resp) {
         return resp.json().then(function (data) {
           return { ok: resp.ok, data: data };
@@ -270,7 +270,7 @@
 
   /* ---------- 启动：查一下服务是不是 mock 模式 ---------- */
 
-  fetch('/api/health')
+  fetch('api/health')
     .then(function (r) { return r.json(); })
     .then(function (h) {
       if (h && h.mock) show(el.mockBadge);
