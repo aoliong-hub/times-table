@@ -93,13 +93,37 @@ FastAPI 页面 —— 所以前端的静态资源和接口全部用**相对路�
 错误码：`400` 图片打不开或为空｜`413` 超过 8MB｜`422` 缺 `file`｜
 `502` 模型调用失败或没按格式回答｜`503` 真实模式下服务端没配 key。
 
+## 本地几何比对（打分前先量一量）
+
+调 LLM 之前，先用图像处理把可量化的差异量出来，再连同照片一起交给模型：
+
+1. **找格子**：HSV 取红色格线 → 最大连通域 → 四角点透视归一到 1024×1024
+   （与标准字坐标系一致）
+2. **提笔迹**：Sauvola 局部阈值抗阴影，剔掉红线和抗锯齿边，去噪点
+3. **标准字**：来自 `../dataset/hanzi-writer-data`（`medians` 逐笔中线，
+   注意该数据集实测为 **y 轴向上**，README 写反了，加载时统一翻转），
+   比对前先把标准字仿射到手写字块上——位置/大小差异由占格指标单独评价
+4. **量差异**：占格中心偏移/大小比例/出格占比、每笔到标准位置的距离
+   （距离变换）、逐笔覆盖（疑似缺笔）、整体倾斜；标准笔画渲染线宽取
+   手写实测笔画宽，把「写得粗」从形状偏差里消掉
+5. **认字**：目标字没填时用轻量 OCR（RapidOCR，PP-OCRv4 ONNX，CPU ~0.1s）
+   认出照片里的字；OCR 没装或置信度低（<0.5）时退模板匹配（3500 常用字
+   逐个比对，首次构建约 6 秒），并把形近候选一并列给 LLM 确认
+
+几何结果不直接改分数：中文摘要 + 「标准笔画红线叠加图」注入用户提示词，
+LLM 结合照片自己看。**几何环节任何失败都静默降级**（响应里 `geometry: null`），
+打分照常进行。阈值常量集中在 `core/geometry.py` 顶部，真照片调参只动那里。
+
+前端结果卡里有「程序量了量」区块：几行中文 + 红线叠加图，判空隐藏。
+
 ## 目录结构
 
 ```
 hanzi-score/
 ├── core/                  # 纯逻辑，不 import fastapi，换外壳时原样复用
 │   ├── rubric.py          # 书写要点、四个维度、等级与重写阈值
-│   └── scorer.py          # 提示词构造、调 llm_client、结果归一化、mock
+│   ├── geometry.py        # 本地几何比对：找格/提笔迹/比对/认字/叠加图
+│   └── scorer.py          # 提示词构造、几何注入、调 llm_client、归一化、mock
 ├── server/
 │   ├── app.py             # FastAPI
 │   └── static/            # 原生 HTML/CSS/JS，无构建步骤
@@ -116,12 +140,13 @@ hanzi-score/
 
 ```bash
 python3 hanzi-score/test/test_rubric.py      # 17 项：等级边界、重写判定、分数夹紧
-python3 hanzi-score/test/test_scorer.py      # 24 项：提示词、归一化兜底、mock
+python3 hanzi-score/test/test_scorer.py      # 29 项：提示词、几何注入、归一化兜底、mock
+python3 hanzi-score/test/test_geometry.py    # 14 项：找格/提笔迹/比对/认字（全离线）
 python3 hanzi-score/samples/make_samples.py  # 生成 8 张测试图
 
 # 前端（jsdom 真实加载页面走完选图→打分→渲染）
 cd /tmp && npm install jsdom --no-save
-node hanzi-score/test/web.smoke.js           # 14 项
+node hanzi-score/test/web.smoke.js           # 16 项
 ```
 
 端到端（演示模式，不联网）：
@@ -135,10 +160,11 @@ curl -s -F "file=@hanzi-score/samples/bad_mu.png" -F "target_char=木" \
      localhost:8360/api/score | python3 -m json.tool     # 46 分，need_rewrite: true
 ```
 
-**还没验证的一步**：真实模型的打分质量。`samples/` 里是用线段合成的字，
-不是真实手写；开发环境也没有可用的 API key，所以没跑过真实调用。
-配好 `LLM_API_KEY` 后用真照片试几张，看分数和评语合不合一年级老师的判断，
-不合就回去调 `core/scorer.py` 里的打分尺度那几句。
+**还没充分验证的一步**：真实手写照片的打分质量。`samples/` 里是用线段合成的字，
+不是真实手写；真实链路只在开发环境打过一张合成图。用真照片试几张，看几何指标
+和评语合不合一年级老师的判断，不合就调 `core/geometry.py` 顶部的阈值常量、
+`core/scorer.py` 里的打分尺度那几句。另外认字用的 RapidOCR 需要联网装一次
+（`pip install rapidocr-onnxruntime`，模型内置），没装时自动退模板匹配。
 
 ## 下一步：换外壳
 

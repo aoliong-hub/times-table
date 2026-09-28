@@ -73,7 +73,9 @@ function fakeResult(overrides) {
     ],
     model: 'mock',
     elapsed: 0.4,
-    mock: true
+    mock: true,
+    geometry: null,
+    geometry_overlay: null
   }, overrides || {});
 }
 
@@ -281,8 +283,42 @@ it('没填目标字则不提交该字段', async () => {
   assert(!calls.score[0].body.has('target_char'), '空目标字不该提交');
 });
 
-it('接口报错时把服务端的说明显示出来', async () => {
-  const { win, doc } = boot({ scoreStatus: 400 });
+it('带几何结果时显示程序量了量区块和叠加图', async () => {
+  const { win, doc } = boot({
+    scoreResult: fakeResult({
+      geometry: {
+        ok: true, char: '木',
+        lines: ['占格：字的中心偏右 5%', '贴合：平均每笔偏离标准位置约 2% 格宽'],
+        recognized: null, metrics: {}
+      },
+      geometry_overlay: 'data:image/png;base64,AAA'
+    })
+  });
+  await flush();
+  selectFile(win, doc);
+  doc.getElementById('score-btn').click();
+  await flush();
+
+  const geo = doc.getElementById('geometry');
+  assert(!hidden(geo), '有几何结果应显示区块');
+  const rows = doc.querySelectorAll('#geometry-rows li');
+  assert(rows.length === 2, `几何行应有 2 条，实际 ${rows.length}`);
+  assert(/偏右 5%/.test(rows[0].textContent), '几何行内容不对');
+  assert(!hidden(doc.getElementById('geometry-overlay')), '有叠加图应显示');
+  assert(doc.getElementById('geometry-overlay').src === 'data:image/png;base64,AAA',
+    '叠加图地址没设上');
+});
+
+it('没带几何结果时隐藏程序量了量区块', async () => {
+  const { win, doc } = boot();
+  await flush();
+  selectFile(win, doc);
+  doc.getElementById('score-btn').click();
+  await flush();
+  assert(hidden(doc.getElementById('geometry')), 'geometry 为 null 时应隐藏');
+});
+
+it('接口报错时把服务端的说明显示出来', async () => {  const { win, doc } = boot({ scoreStatus: 400 });
   await flush();
   selectFile(win, doc);
   doc.getElementById('score-btn').click();

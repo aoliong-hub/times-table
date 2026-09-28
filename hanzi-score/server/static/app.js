@@ -27,6 +27,9 @@
     rewrite: document.getElementById('rewrite'),
     rewriteReason: document.getElementById('rewrite-reason'),
     rewriteAdvice: document.getElementById('rewrite-advice'),
+    geometry: document.getElementById('geometry'),
+    geometryOverlay: document.getElementById('geometry-overlay'),
+    geometryRows: document.getElementById('geometry-rows'),
     meta: document.getElementById('meta')
   };
 
@@ -256,6 +259,26 @@
       show(el.rewrite);
     } else {
       hide(el.rewrite);
+    }
+
+    // 本地几何比对（后端已生成中文行，前端只负责展示）
+    el.geometryRows.textContent = '';
+    el.geometryOverlay.removeAttribute('src');
+    hide(el.geometryOverlay);
+    var geo = data.geometry;
+    if (geo && geo.ok && (geo.lines || []).length) {
+      geo.lines.forEach(function (text) {
+        var li = document.createElement('li');
+        li.textContent = text;
+        el.geometryRows.appendChild(li);
+      });
+      if (data.geometry_overlay) {
+        el.geometryOverlay.src = data.geometry_overlay;
+        show(el.geometryOverlay);
+      }
+      show(el.geometry);
+    } else {
+      hide(el.geometry);
     }
 
     var bits = [];

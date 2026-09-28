@@ -267,6 +267,60 @@ def 没给图片直接报错():
         raise AssertionError("没给图片应该抛 ScoreError")
 
 
+def 归一化透传几何字段():
+    geo = {"ok": True, "char": "木", "lines": ["占格：基本居中"], "recognized": None,
+           "metrics": {}}
+    out = scorer.normalize(_raw(), "木", geometry=geo)
+    assert out["geometry"] is geo
+    out2 = scorer.normalize(_raw(), "木")
+    assert out2["geometry"] is None, "不带几何参数时 geometry 应为 None"
+
+
+def 用户指令拼进几何摘要():
+    geo = {"ok": True, "char": "木", "lines": ["占格：基本居中"], "recognized": None,
+           "metrics": {}}
+    text = scorer.build_user_text("木", scorer.geometry_prompt_text(geo, "木"))
+    assert "「木」的标准写法" in text and "占格：基本居中" in text
+    assert "不要照念数字" in text, "几何段要交代数据只当参考"
+    # 不带几何时跟原来一样
+    assert scorer.build_user_text("木", None) == scorer.build_user_text("木")
+
+
+def 几何提示词认字场景有确认请求():
+    geo = {"ok": True, "char": "木",
+           "lines": ["占格：基本居中"],
+           "recognized": [{"char": "木", "score": 0.9, "source": "ocr"},
+                          {"char": "术", "score": 0.4, "source": "template"}]}
+    text = scorer.geometry_prompt_text(geo, None)
+    assert "木" in text and "术" in text and "确认" in text
+    assert scorer.geometry_prompt_text({"ok": False}, None) is None
+    assert scorer.geometry_prompt_text(None, None) is None
+
+
+def messages结构是原图加可选叠加图():
+    msgs = scorer.build_messages("data:image/png;base64,AAA", "木",
+                                 overlay_uri="data:image/png;base64,BBB",
+                                 geometry_text="参考数据")
+    content = msgs[1]["content"]
+    assert len(content) == 3, "有叠加图时 user content 应为 原图+叠加图+文字"
+    assert content[1]["image_url"]["url"] == "data:image/png;base64,BBB"
+    # 没有叠加图时仍是 图+文字
+    msgs2 = scorer.build_messages("data:image/png;base64,AAA", "木")
+    assert len(msgs2[1]["content"]) == 2
+
+
+def mock带几何时透传且不影响分数():
+    geo = {"ok": True, "char": "木", "lines": ["占格：基本居中"], "recognized": None,
+           "metrics": {}}
+    a = scorer.mock_result(target_char="木", seed=b"img-a", geometry=geo,
+                           overlay="data:image/png;base64,AAA")
+    assert a["geometry"] is geo and a["geometry_overlay"] == "data:image/png;base64,AAA"
+    assert a["mock"] is True
+    b = scorer.mock_result(target_char="木", seed=b"img-a")
+    assert b["total"] == a["total"], "几何信息不应改变 mock 分数"
+    assert b["geometry"] is None and b["geometry_overlay"] is None
+
+
 if __name__ == "__main__":
     print("scorer.py 自测")
     for fn in (
@@ -294,6 +348,11 @@ if __name__ == "__main__":
         mock标注了演示数据,
         mock走score_image时不联网,
         没给图片直接报错,
+        归一化透传几何字段,
+        用户指令拼进几何摘要,
+        几何提示词认字场景有确认请求,
+        messages结构是原图加可选叠加图,
+        mock带几何时透传且不影响分数,
     ):
         test(fn.__name__, fn)
 

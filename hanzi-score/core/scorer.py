@@ -7,6 +7,7 @@
 返回构造好的假评分（按图片内容取固定一种，同一张图结果稳定）。
 """
 
+import base64
 import hashlib
 import os
 import re
@@ -100,30 +101,65 @@ def build_system_prompt():
     )
 
 
-def build_user_text(target_char=None):
-    """用户侧指令：说明图是什么、要不要对照目标字。"""
+def build_user_text(target_char=None, geometry_text=None):
+    """用户侧指令：说明图是什么、要不要对照目标字；有几何比对结果时一并给出。"""
     head = "这是学生在田字格里写的一个字，请批改。"
     if target_char:
-        return (
+        body = (
             head
             + "\n这一格要写的字是「%s」。请按这个字的写法批改：" % target_char
             + "如果图里写的不是这个字，「笔画正确」项给 0 到 5 分，并在 comment 里说明写成了什么。"
         )
-    return head + "\n请先认出图里写的是哪个字，再按那个字的写法批改。"
+    else:
+        body = head + "\n请先认出图里写的是哪个字，再按那个字的写法批改。"
+
+    if geometry_text:
+        body += "\n\n" + geometry_text
+    return body
 
 
-def build_messages(image_data_uri, target_char=None):
-    """拼成 OpenAI 格式的 messages（图 + 文）。"""
+def build_messages(image_data_uri, target_char=None, overlay_uri=None, geometry_text=None):
+    """拼成 OpenAI 格式的 messages（原图 + 可选叠加图 + 文）。"""
+    content = [{"type": "image_url", "image_url": {"url": image_data_uri}}]
+    if overlay_uri:
+        content.append({"type": "image_url", "image_url": {"url": overlay_uri}})
+    content.append({"type": "text", "text": build_user_text(target_char, geometry_text)})
     return [
         {"role": "system", "content": build_system_prompt()},
-        {
-            "role": "user",
-            "content": [
-                {"type": "image_url", "image_url": {"url": image_data_uri}},
-                {"type": "text", "text": build_user_text(target_char)},
-            ],
-        },
+        {"role": "user", "content": content},
     ]
+
+
+# ---------------------------------------------------------------- 几何比对注入
+
+def geometry_prompt_text(geometry, target_char=None):
+    """把几何比对结果拼成给 LLM 的用户侧说明（老师口吻，数据只当参考）。"""
+    if not geometry or not geometry.get("ok"):
+        return None
+    lines = geometry.get("lines") or []
+    if not lines:
+        return None
+    ref = target_char or geometry.get("char")
+    out = []
+    if ref:
+        out.append("我先用程序把这张照片里的字和「%s」的标准写法量了一遍，得到这些参考数据：" % ref)
+    else:
+        out.append("我先用程序量了量这张照片里的字在格子里的位置：")
+    out.extend("- " + line for line in lines)
+    if geometry.get("recognized"):
+        best = geometry["recognized"][0]
+        others = "、".join(r["char"] for r in geometry["recognized"][1:3])
+        guess = "程序猜这个字最像「%s」" % best["char"]
+        if others:
+            guess += "，其次像 " + others
+        out.append(guess + "，请你从照片里确认它到底写的是哪个字。")
+    out.append(
+        "另外附了第二张图：红色细线是标准笔画的中间线，红线和字对不上的地方就是偏差。"
+        "这两样都是程序粗略量出来的，照片有反光、笔画断了笔的时候会量不准。"
+        "请你结合两张图自己看：数据只当参考，评语要用你自己看图的话来说，"
+        "不要照念数字，也不要跟孩子提「程序」「百分比」这些词。"
+    )
+    return "\n".join(out)
 
 
 # ---------------------------------------------------------------- 归一化
@@ -136,11 +172,12 @@ def _one_line(text, limit=60):
     return cleaned[:limit]
 
 
-def normalize(raw, target_char=None):
+def normalize(raw, target_char=None, geometry=None):
     """把模型原始输出整理成前端要的结构，顺便把不可信的地方兜住。
 
     做四件事：分数夹到 [0, full]、总分按各项累加（不采信模型自己算的）、
     改进点截到 MAX_IMPROVEMENTS 条、按 rubric 判等级与是否重写。
+    geometry 是本地几何比对的结果 dict（可空），原样透传给前端。
     """
     raw = raw if isinstance(raw, dict) else {}
     dims_raw = raw.get("dimensions")
@@ -202,6 +239,7 @@ def normalize(raw, target_char=None):
         "praise": _one_line(raw.get("praise"), limit=80) or rubric.DEFAULT_PRAISE,
         "improvements": improvements,
         "dimensions": dimensions,
+        "geometry": geometry,
     }
 
 
@@ -234,9 +272,38 @@ def score_image(*, image_bytes=None, image_path=None, target_char=None,
     target_char = clean_target_char(target_char)
     started = time.time()
 
+    # 本地几何比对（永不阻断打分：失败就当没有几何信息）
+    geo = None
+    geometry_out = None
+    overlay_uri = None
+    try:
+        try:
+            from . import geometry as _geometry
+        except ImportError:                # 直接以脚本方式跑 core/scorer.py 时
+            import geometry as _geometry
+        geo = _geometry.extract(source, target_char)
+        if geo and geo.get("ok"):
+            geometry_out = {
+                "ok": True,
+                "char": geo.get("char"),
+                "metrics": geo.get("metrics"),
+                "lines": geo.get("lines") or [],
+                "recognized": geo.get("recognized"),
+            }
+            std = _geometry.load_standard(geo["char"]) if geo.get("char") else None
+            if std:
+                png = _geometry.build_overlay_png(
+                    geo.get("warped"), std["medians"], geo.get("ink"))
+                if png:
+                    overlay_uri = ("data:image/png;base64,"
+                                   + base64.b64encode(png).decode("ascii"))
+    except Exception:
+        pass
+
     if mock:
         result = mock_result(target_char=target_char, seed=source,
-                             variant=mock_variant)
+                             variant=mock_variant, geometry=geometry_out,
+                             overlay=overlay_uri)
         result["elapsed"] = round(time.time() - started, 3)
         return result
 
@@ -248,7 +315,9 @@ def score_image(*, image_bytes=None, image_path=None, target_char=None,
     except Exception as exc:
         raise ScoreError("图片打不开，换一张试试", cause=exc)
 
-    messages = build_messages(data_uri, target_char)
+    messages = build_messages(data_uri, target_char,
+                              overlay_uri=overlay_uri,
+                              geometry_text=geometry_prompt_text(geometry_out, target_char))
     try:
         res = call_llm(
             messages=messages,
@@ -270,7 +339,8 @@ def score_image(*, image_bytes=None, image_path=None, target_char=None,
     if not isinstance(parsed, dict):
         raise ScoreError("模型没有按格式回答，请再试一次", content=res.content)
 
-    result = normalize(parsed, target_char)
+    result = normalize(parsed, target_char, geometry=geometry_out)
+    result["geometry_overlay"] = overlay_uri
     result["model"] = res.model
     result["usage"] = res.usage
     result["retries"] = res.retries
@@ -351,11 +421,13 @@ MOCK_VARIANTS = {
 _MOCK_ORDER = ["excellent", "good", "pass", "rewrite"]
 
 
-def mock_result(target_char=None, seed=None, variant=None):
+def mock_result(target_char=None, seed=None, variant=None, geometry=None, overlay=None):
     """不联网的假评分，用来调试页面和接口。
 
     variant 显式指定形态（见 MOCK_VARIANTS）；不指定就按 seed（图片字节或路径）
     取一个固定形态 —— 同一张图每次都得到同样的分，换图才换分。
+    geometry / overlay 是本地几何比对的展示信息（分数仍来自 MOCK_VARIANTS，
+    保持「演示数据」语义清晰）。
     """
     if variant not in MOCK_VARIANTS:
         if seed is None:
@@ -368,7 +440,8 @@ def mock_result(target_char=None, seed=None, variant=None):
     raw = dict(MOCK_VARIANTS[variant]["raw"])
     raw["char"] = target_char or "木"
 
-    result = normalize(raw, target_char)
+    result = normalize(raw, target_char, geometry=geometry)
+    result["geometry_overlay"] = overlay
     result["model"] = "mock"
     result["usage"] = {}
     result["retries"] = 0
