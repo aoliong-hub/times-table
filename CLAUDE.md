@@ -2,6 +2,11 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+This repo holds tools for Chinese elementary students:
+
+- **Root (`index.html` + `js/`, `css/`)** — "动手建造区", the drag-and-drop multiplication builder described below. Pure static, no backend.
+- **`hanzi-score/`** — "田字格小老师", a FastAPI service that scores a first-grader's handwriting from a 田字格 photo (uploads image → multimodal LLM → score + improvement points, below 60 suggests a rewrite). The only part of this repo with a backend; see `hanzi-score/README.md`.
+
 ## Project Overview
 
 "动手建造区" (Hands-on Building Area) - an interactive multiplication table learning tool for Chinese elementary school students. Users drag numbers into "bases" to discover multiplication facts through addition. Pure HTML/CSS/JS, no build tools, no dependencies.

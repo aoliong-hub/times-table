@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>田字格小老师 - 汉字书写打分</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="stars" aria-hidden="true"></div>
+
+  <header class="page-head">
+    <h1>✍️ 田字格小老师</h1>
+    <p class="subtitle">拍一张田字格里的字，老师看看写得怎么样</p>
+    <p id="mock-badge" class="mock-badge hidden" role="status">演示数据：分数是假的，只用来看页面效果</p>
+  </header>
+
+  <main>
+    <section class="card" aria-labelledby="upload-title">
+      <h2 id="upload-title" class="card-title">上传练习</h2>
+
+      <div class="field">
+        <label for="target-char">这一格要写的字（可以不填）</label>
+        <input id="target-char" type="text" maxlength="1" placeholder="例：木"
+               autocomplete="off" aria-describedby="target-hint">
+        <p id="target-hint" class="field-hint">填了就按这个字批改，能看出写错字或缺笔画；不填老师自己认。</p>
+      </div>
+
+      <div id="drop-zone" class="drop-zone" tabindex="0" role="button"
+           aria-label="选择或拖入田字格照片">
+        <input type="file" id="file-input" accept="image/*" capture="environment"
+               class="visually-hidden">
+        <div id="drop-hint" class="drop-hint">
+          <span class="drop-icon" aria-hidden="true">📷</span>
+          <p>点这里选照片，或把图片拖进来</p>
+          <p class="field-hint">手机上可以直接拍照，把田字格拍满整张图最好</p>
+        </div>
+        <div id="preview-wrap" class="preview-wrap hidden">
+          <div class="tianzige">
+            <img id="preview" alt="上传的田字格练习照片">
+          </div>
+          <p id="file-name" class="field-hint"></p>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button id="score-btn" class="btn-primary" type="button" disabled>开始打分</button>
+        <button id="reset-btn" class="btn-secondary hidden" type="button">换一张</button>
+      </div>
+
+      <p id="error" class="error hidden" role="alert"></p>
+    </section>
+
+    <section id="result" class="card result-card hidden" aria-labelledby="result-title"
+             aria-live="polite">
+      <h2 id="result-title" class="card-title">批改结果</h2>
+
+      <div class="score-head">
+        <div id="score-ring" class="score-ring">
+          <span id="score-num" class="score-num">0</span>
+          <span class="score-full">/ 100</span>
+        </div>
+        <div class="score-meta">
+          <p id="level-badge" class="level-badge">—</p>
+          <p id="char-line" class="char-line"></p>
+        </div>
+      </div>
+
+      <p id="praise" class="praise"></p>
+
+      <div id="dims" class="dims"></div>
+
+      <div id="improve-wrap" class="improve hidden">
+        <h3>再改这几点</h3>
+        <ol id="improvements"></ol>
+      </div>
+
+      <div id="rewrite" class="rewrite hidden">
+        <h3>✏️ 这个字建议再写一遍</h3>
+        <p id="rewrite-reason" class="rewrite-reason"></p>
+        <p id="rewrite-advice" class="rewrite-advice"></p>
+      </div>
+
+      <p id="meta" class="meta"></p>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

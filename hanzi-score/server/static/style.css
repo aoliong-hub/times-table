@@ -1,0 +1,201 @@
+/* 田字格小老师 —— 主题变量沿用根目录 css/style.css，视觉上和另外两个工具一家人 */
+:root {
+  --hero-blue: #1E90FF;
+  --hero-red: #FF4444;
+  --energy-gold: #FFD700;
+  --energy-green: #00FF88;
+  --warn-red: #FF6B6B;
+  --bg-dark: #0a1628;
+  --bg-darker: #1a2a4a;
+  --text-white: #ffffff;
+  --text-light: #b8c6db;
+  --glass-bg: rgba(255, 255, 255, 0.08);
+  --glass-border: rgba(255, 255, 255, 0.15);
+  --glow-blue: 0 0 20px rgba(30, 144, 255, 0.5);
+  --glow-gold: 0 0 20px rgba(255, 215, 0, 0.5);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
+  background: linear-gradient(135deg, var(--bg-dark) 0%, var(--bg-darker) 50%, #0d1f3c 100%);
+  color: var(--text-white);
+  min-height: 100vh;
+  padding: 24px 16px 60px;
+}
+
+.stars {
+  position: fixed;
+  inset: 0;
+  background-image:
+    radial-gradient(1px 1px at 20% 30%, #fff, transparent),
+    radial-gradient(1px 1px at 70% 15%, #fff, transparent),
+    radial-gradient(1px 1px at 45% 70%, #fff, transparent),
+    radial-gradient(1px 1px at 85% 60%, #fff, transparent);
+  opacity: 0.35;
+  pointer-events: none;
+  z-index: 0;
+}
+
+main, .page-head { position: relative; z-index: 1; max-width: 720px; margin: 0 auto; }
+
+.page-head { text-align: center; margin-bottom: 24px; }
+.page-head h1 { font-size: 30px; text-shadow: var(--glow-blue); }
+.subtitle { color: var(--text-light); margin-top: 8px; font-size: 15px; }
+
+.mock-badge {
+  display: inline-block;
+  margin-top: 12px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(255, 215, 0, 0.15);
+  border: 1px solid var(--energy-gold);
+  color: var(--energy-gold);
+  font-size: 13px;
+}
+
+.card {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: 18px;
+  padding: 22px;
+  margin-bottom: 20px;
+  backdrop-filter: blur(10px);
+}
+
+.card-title { font-size: 18px; margin-bottom: 16px; color: var(--energy-gold); }
+
+.field { margin-bottom: 18px; }
+.field label { display: block; font-size: 15px; margin-bottom: 8px; }
+.field-hint { color: var(--text-light); font-size: 13px; margin-top: 6px; line-height: 1.6; }
+
+#target-char {
+  width: 88px;
+  height: 56px;
+  text-align: center;
+  font-size: 28px;
+  color: var(--text-white);
+  background: rgba(0, 0, 0, 0.25);
+  border: 2px solid var(--glass-border);
+  border-radius: 12px;
+}
+#target-char:focus { outline: none; border-color: var(--hero-blue); box-shadow: var(--glow-blue); }
+
+/* ===== 上传区 ===== */
+.drop-zone {
+  border: 2px dashed var(--glass-border);
+  border-radius: 16px;
+  padding: 26px 16px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+.drop-zone:hover, .drop-zone:focus, .drop-zone.dragover {
+  border-color: var(--hero-blue);
+  background: rgba(30, 144, 255, 0.08);
+  outline: none;
+}
+.drop-icon { font-size: 40px; display: block; margin-bottom: 10px; }
+.drop-hint p { color: var(--text-light); font-size: 15px; }
+
+/* 预览图套一层田字格参考线，方便对照占格 */
+.tianzige {
+  position: relative;
+  width: 260px;
+  height: 260px;
+  margin: 0 auto 10px;
+  border: 3px solid var(--hero-red);
+  background: rgba(255, 255, 255, 0.92);
+  overflow: hidden;
+}
+.tianzige::before, .tianzige::after {
+  content: '';
+  position: absolute;
+  background-image: linear-gradient(to right, var(--hero-red) 50%, transparent 50%);
+  background-size: 12px 1px;
+}
+.tianzige::before { left: 0; right: 0; top: 50%; height: 1px; }
+.tianzige::after {
+  top: 0; bottom: 0; left: 50%; width: 1px;
+  background-image: linear-gradient(to bottom, var(--hero-red) 50%, transparent 50%);
+  background-size: 1px 12px;
+}
+.tianzige img { width: 100%; height: 100%; object-fit: contain; display: block; }
+
+/* ===== 按钮 ===== */
+.actions { display: flex; gap: 12px; margin-top: 18px; flex-wrap: wrap; }
+
+.btn-primary, .btn-secondary {
+  flex: 1 1 140px;
+  padding: 14px 20px;
+  font-size: 17px;
+  font-family: inherit;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.btn-primary {
+  background: linear-gradient(135deg, var(--hero-blue), #0066cc);
+  color: #fff;
+  box-shadow: var(--glow-blue);
+}
+.btn-secondary {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  color: var(--text-white);
+}
+.btn-primary:hover:not(:disabled), .btn-secondary:hover { transform: translateY(-2px); }
+.btn-primary:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
+
+.error {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: rgba(255, 107, 107, 0.15);
+  border: 1px solid var(--warn-red);
+  color: #ffd6d6;
+  font-size: 14px;
+}
+
+/* ===== 结果卡 ===== */
+.score-head { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
+
+.score-ring {
+  width: 116px;
+  height: 116px;
+  border-radius: 50%;
+  border: 5px solid var(--energy-green);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 22px rgba(0, 255, 136, 0.35);
+  flex-shrink: 0;
+}
+.score-num { font-size: 40px; font-weight: bold; line-height: 1; }
+.score-full { font-size: 13px; color: var(--text-light); margin-top: 4px; }
+
+.level-badge {
+  display: inline-block;
+  padding: 6px 16px;
+  border-radius: 999px;
+  background: rgba(255, 215, 0, 0.16);
+  border: 1px solid var(--energy-gold);
+  color: var(--energy-gold);
+  font-size: 17px;
+}
+.char-line { color: var(--text-light); font-size: 14px; margin-top: 10px; line-height: 1.7; }
+
+.praise {
+  margin: 18px 0;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: rgba(0, 255, 136, 0.1);
+  border-left: 4px solid var(--energy-green);
+  font-size: 16px;
+  line-height: 1.7;
+}
+
+/* PLACEHOLDER_CSS */
