@@ -151,16 +151,6 @@ main { max-width: 540px; margin: 0 auto; }
 .level-badge { font-size: 20px; font-weight: bold; }
 .char-line { color: var(--ink-light); font-size: 14px; margin-top: 6px; line-height: 1.6; }
 
-.praise {
-  margin: 14px 0;
-  padding: 12px 14px;
-  border-radius: 10px;
-  background: rgba(46, 171, 97, 0.08);
-  border-left: 4px solid var(--good);
-  font-size: 15px;
-  line-height: 1.7;
-}
-
 /* ===== 重写提示 ===== */
 .rewrite {
   margin: 14px 0;

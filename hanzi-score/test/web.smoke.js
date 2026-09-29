@@ -186,7 +186,6 @@ it('高分结果渲染出分数等级和四条维度', async () => {
   assert(!hidden(doc.getElementById('result')), '结果区应显示');
   assert(doc.getElementById('score-num').textContent === '84', '总分渲染错');
   assert(/写得不错/.test(doc.getElementById('level-badge').textContent), '等级徽章渲染错');
-  assert(/横写得又平又稳/.test(doc.getElementById('praise').textContent), '表扬语渲染错');
 
   const dims = doc.querySelectorAll('#dims .dim');
   assert(dims.length === 4, `应有 4 条维度，实际 ${dims.length}`);
@@ -278,8 +277,10 @@ it('带几何结果时显示照片与标准并排对比和分层叠加图', asyn
       geometry_overlay: {
         grid: 'data:image/png;base64,G',
         green: 'data:image/png;base64,Gr',
+        green_cl: 'data:image/png;base64,Gc',
         yellow: null,
         red: 'data:image/png;base64,R',
+        red_cl: 'data:image/png;base64,Rc',
         ink: 'data:image/png;base64,I'
       }
     })
@@ -299,18 +300,22 @@ it('带几何结果时显示照片与标准并排对比和分层叠加图', asyn
   assert(doc.getElementById('geometry-grid').src === 'data:image/png;base64,G', '米字格层没设上');
   assert(doc.getElementById('geometry-ink').src === 'data:image/png;base64,I', '手写层没设上');
   assert(doc.getElementById('geometry-layer-green').src === 'data:image/png;base64,Gr', '绿层没设上');
+  assert(doc.getElementById('geometry-cl-green').src === 'data:image/png;base64,Gc', '绿档中线层没设上');
   assert(doc.getElementById('geometry-layer-yellow').style.display === 'none',
     '没有黄色层时应隐藏');
-  // 筛选按钮：点红 → 只显示红层
+  // 筛选按钮：点红 → 只显示红层（笔画和中线一起显隐）
   const redBtn = doc.querySelector('#layer-btns [data-layer="red"]');
   redBtn.dispatchEvent(new win.Event('click', { bubbles: true }));
   assert(doc.getElementById('geometry-layer-green').style.display === 'none', '点红后绿层应隐藏');
+  assert(doc.getElementById('geometry-cl-green').style.display === 'none', '点红后绿档中线应隐藏');
   assert(doc.getElementById('geometry-layer-red').style.display === '', '点红后红层应显示');
+  assert(doc.getElementById('geometry-cl-red').style.display === '', '点红后红档中线应显示');
   assert(redBtn.classList.contains('active'), '点红后按钮应高亮');
   // 全部
   doc.querySelector('#layer-btns [data-layer="all"]')
     .dispatchEvent(new win.Event('click', { bubbles: true }));
   assert(doc.getElementById('geometry-layer-green').style.display === '', '点全部后绿层应恢复');
+  assert(doc.getElementById('geometry-cl-green').style.display === '', '点全部后绿档中线应恢复');
 });
 
 it('没带几何结果时隐藏程序量了量区块', async () => {

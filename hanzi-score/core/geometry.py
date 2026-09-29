@@ -786,7 +786,8 @@ def build_overlay_pngs(warped, std, ink=None, stroke_scores=None):
     返回 dict：
       grid   米字格底板 + 没量出对齐率的笔画（浅灰），不透明
       green/yellow/red  对齐档位对应的笔画填充（透明底 RGBA，无则 None）
-      ink    黑色手写笔迹 + 红色标准中线（透明底 RGBA，叠在最上层）
+      green_cl/yellow_cl/red_cl  同档位笔画的标准中线（叠在手写上面，无则 None）
+      ink    黑色手写笔迹 + 没分档笔画的中线（透明底 RGBA）
     """
     try:
         medians = (std or {}).get("medians") or []
@@ -797,6 +798,7 @@ def build_overlay_pngs(warped, std, ink=None, stroke_scores=None):
 
         # 各档位笔画分别画到自己的透明层
         layers = {"green": None, "yellow": None, "red": None}
+        cl_layers = {"green": None, "yellow": None, "red": None}
         per_stroke_polys = [sample_svg_strokes([s]) for s in strokes]
         for idx, polys in enumerate(per_stroke_polys):
             align = stroke_scores[idx] if stroke_scores and idx < len(stroke_scores) \
@@ -818,16 +820,30 @@ def build_overlay_pngs(warped, std, ink=None, stroke_scores=None):
         if ink is not None and cv2.countNonZero(ink):
             ink_layer[ink > 0] = (34, 34, 34, 255)
 
-        # 标准笔画中线（红，带起点圆点）
-        if medians:
-            for stroke in medians:
-                pts = np.array(stroke, np.int32).reshape(-1, 1, 2)
-                cv2.polylines(ink_layer, [pts], False, (0, 0, 255, 255), 5, cv2.LINE_AA)
-                cv2.circle(ink_layer, tuple(pts[0, 0]), 9, (0, 0, 255, 255), -1, cv2.LINE_AA)
+        # 标准笔画中线（红，带起点圆点）：分了档的跟笔画同层，便于一起筛选
+        def draw_centerline(canvas, stroke):
+            pts = np.array(stroke, np.int32).reshape(-1, 1, 2)
+            cv2.polylines(canvas, [pts], False, (0, 0, 255, 255), 5, cv2.LINE_AA)
+            cv2.circle(canvas, tuple(pts[0, 0]), 9, (0, 0, 255, 255), -1, cv2.LINE_AA)
+
+        for idx, stroke in enumerate(medians):
+            align = stroke_scores[idx] if stroke_scores and idx < len(stroke_scores) \
+                else None
+            name = _stroke_color_name(align)
+            if name is None:
+                draw_centerline(ink_layer, stroke)
+                continue
+            layer = cl_layers[name]
+            if layer is None:
+                layer = np.zeros((GRID_SIZE, GRID_SIZE, 4), np.uint8)
+            draw_centerline(layer, stroke)
+            cl_layers[name] = layer
 
         out = {"grid": _encode_rgba(grid)}
         for name, layer in layers.items():
             out[name] = _encode_rgba(layer) if layer is not None else None
+        for name, layer in cl_layers.items():
+            out[name + "_cl"] = _encode_rgba(layer) if layer is not None else None
         out["ink"] = _encode_rgba(ink_layer)
         return out
     except Exception:

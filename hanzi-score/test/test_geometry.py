@@ -195,11 +195,16 @@ def 叠加图分层能生成PNG():
     # 给每笔明确的对齐率：green 层和 red 层都该有内容
     pngs = geometry.build_overlay_pngs(r["warped"], std, r["ink"],
                                        stroke_scores=[1.0, 0.0, 1.0, 1.0])
-    assert pngs and set(pngs) == {"grid", "green", "yellow", "red", "ink"}, \
+    assert pngs and {"grid", "green", "yellow", "red", "ink"} <= set(pngs), \
         "分层不对: %s" % sorted(pngs)
     for name in ("grid", "green", "red", "ink"):
         assert pngs[name] and pngs[name][:4] == b"\x89PNG", "%s 层应是 PNG" % name
     assert pngs["yellow"] is None, "没有黄色档的笔时该给 None"
+    # 中线跟笔画同档分层，便于前端一起显隐
+    for name in ("green", "red"):
+        assert pngs[name + "_cl"] and pngs[name + "_cl"][:4] == b"\x89PNG", \
+            "%s 的中线层应是 PNG" % name
+    assert pngs["yellow_cl"] is None, "没有黄色档笔画时中线层也该是 None"
     # 绿层里有绿色像素（带 alpha），红层里有红色像素
     green = cv2.imdecode(np.frombuffer(pngs["green"], np.uint8), cv2.IMREAD_UNCHANGED)
     red = cv2.imdecode(np.frombuffer(pngs["red"], np.uint8), cv2.IMREAD_UNCHANGED)

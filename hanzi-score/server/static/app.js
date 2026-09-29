@@ -21,7 +21,6 @@
     scoreNum: document.getElementById('score-num'),
     levelBadge: document.getElementById('level-badge'),
     charLine: document.getElementById('char-line'),
-    praise: document.getElementById('praise'),
     dims: document.getElementById('dims'),
     improveWrap: document.getElementById('improve-wrap'),
     improvements: document.getElementById('improvements'),
@@ -48,11 +47,28 @@
 
   var LAYER_NAMES = ['green', 'yellow', 'red'];
 
+  function setLayerImg(name, suffix, uri) {
+    var img = document.getElementById('geometry-' + suffix + '-' + name);
+    if (!img) return;
+    if (uri) {
+      img.src = uri;
+      img.dataset.on = '1';
+    } else {
+      img.removeAttribute('src');
+      delete img.dataset.on;
+      img.style.display = 'none';
+    }
+  }
+
   function setLayerFilter(name) {
     LAYER_NAMES.forEach(function (n) {
-      var img = document.getElementById('geometry-layer-' + n);
-      if (!img || img.dataset.on !== '1') return;
-      img.style.display = (name === 'all' || name === n) ? '' : 'none';
+      var fill = document.getElementById('geometry-layer-' + n);
+      var cl = document.getElementById('geometry-cl-' + n);
+      var visible = (name === 'all' || name === n)
+                    && fill && fill.dataset.on === '1';
+      // 笔画和中线成对显隐，专注看某一档
+      if (fill) fill.style.display = visible ? '' : 'none';
+      if (cl) cl.style.display = visible ? '' : 'none';
     });
     var btns = document.querySelectorAll('#layer-btns button');
     for (var i = 0; i < btns.length; i++) {
@@ -225,8 +241,6 @@
     }
     el.charLine.textContent = charText;
 
-    el.praise.textContent = data.praise || '';
-
     // 维度进度条
     el.dims.textContent = '';
     (data.dimensions || []).forEach(function (d) {
@@ -307,7 +321,7 @@
         el.geometryOriginal.src = el.preview.src || '';
         el.geometryGrid.src = ov.grid || '';
         el.geometryInk.src = ov.ink || '';
-        ['green', 'yellow', 'red'].forEach(function (name) {
+        LAYER_NAMES.forEach(function (name) {
           var img = document.getElementById('geometry-layer-' + name);
           if (ov[name]) {
             img.src = ov[name];
@@ -317,6 +331,7 @@
             delete img.dataset.on;
             img.style.display = 'none';
           }
+          setLayerImg(name, 'cl', ov[name + '_cl']);
         });
         setLayerFilter('all');
         show(el.geometry);
