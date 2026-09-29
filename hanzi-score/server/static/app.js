@@ -60,10 +60,11 @@
   }
 
   function setLayerFilter(name) {
+    currentFilter = name || 'all';
     LAYER_NAMES.forEach(function (n) {
       var fill = document.getElementById('geometry-layer-' + n);
       var cl = document.getElementById('geometry-cl-' + n);
-      var visible = (name === 'all' || name === n)
+      var visible = (currentFilter === 'all' || currentFilter === n)
                     && fill && fill.dataset.on === '1';
       // 笔画和中线成对显隐，专注看某一档
       if (fill) fill.style.display = visible ? '' : 'none';
@@ -75,22 +76,46 @@
     }
   }
 
+  var currentFilter = 'all';
+
   var btnBox = document.getElementById('layer-btns');
   if (btnBox) {
     btnBox.addEventListener('click', function (e) {
       var btn = e.target.closest('button');
-      if (btn) setLayerFilter(btn.getAttribute('data-layer'));
+      // 只处理颜色筛选按钮，「只看标准」等其它按钮没有 data-layer
+      if (btn && btn.getAttribute('data-layer')) {
+        setLayerFilter(btn.getAttribute('data-layer'));
+      }
     });
   }
 
-  /* 「只看标准」：隐藏手写层，看标准字的样子（与颜色筛选可叠加） */
+  /* 「只看标准」：隐藏手写和彩色档位层，显示像 preview.html 那样的
+     深灰标准字形层，看看这个字本来该长什么样 */
   var standardOnly = false;
   var stdBtn = document.getElementById('btn-standard');
+  var stdImg = document.getElementById('geometry-std');
+
+  function setStandardOnly(on) {
+    standardOnly = on;
+    if (stdBtn) stdBtn.classList.toggle('active', on);
+    if (el.geometryInk) el.geometryInk.style.display = on ? 'none' : '';
+    if (on) {
+      LAYER_NAMES.forEach(function (n) {
+        ['layer', 'cl'].forEach(function (suffix) {
+          var img = document.getElementById('geometry-' + suffix + '-' + n);
+          if (img) img.style.display = 'none';
+        });
+      });
+      if (stdImg) stdImg.style.display = stdImg.dataset.on === '1' ? '' : 'none';
+    } else {
+      setLayerFilter(currentFilter);  // 按当前筛选恢复各层
+      if (stdImg) stdImg.style.display = 'none';
+    }
+  }
+
   if (stdBtn) {
     stdBtn.addEventListener('click', function () {
-      standardOnly = !standardOnly;
-      stdBtn.classList.toggle('active', standardOnly);
-      if (el.geometryInk) el.geometryInk.style.display = standardOnly ? 'none' : '';
+      setStandardOnly(!standardOnly);
     });
   }
 
@@ -329,6 +354,13 @@
         el.geometryOriginal.src = el.preview.src || '';
         el.geometryGrid.src = ov.grid || '';
         el.geometryInk.src = ov.ink || '';
+        if (ov.std) {
+          stdImg.src = ov.std;
+          stdImg.dataset.on = '1';
+        } else {
+          stdImg.removeAttribute('src');
+          delete stdImg.dataset.on;
+        }
         LAYER_NAMES.forEach(function (name) {
           var img = document.getElementById('geometry-layer-' + name);
           if (ov[name]) {
@@ -342,9 +374,7 @@
           setLayerImg(name, 'cl', ov[name + '_cl']);
         });
         setLayerFilter('all');
-        standardOnly = false;
-        if (stdBtn) stdBtn.classList.remove('active');
-        el.geometryInk.style.display = '';
+        setStandardOnly(false);
         show(el.geometry);
       }
     } else {

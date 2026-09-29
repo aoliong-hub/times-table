@@ -844,6 +844,17 @@ def build_overlay_pngs(warped, std, ink=None, stroke_scores=None):
             out[name] = _encode_rgba(layer) if layer is not None else None
         for name, layer in cl_layers.items():
             out[name + "_cl"] = _encode_rgba(layer) if layer is not None else None
+
+        # 标准字形层：整字深灰（像 hanzi-writer preview 的 #333），
+        # 供前端「只看标准」单独查看这个字该长什么样
+        if strokes:
+            std_layer = np.zeros((GRID_SIZE, GRID_SIZE, 4), np.uint8)
+            for polys in per_stroke_polys:
+                for poly in _polys_scaled(polys, GRID_SIZE):
+                    cv2.fillPoly(std_layer, [poly], (51, 51, 51, 255))
+            out["std"] = _encode_rgba(std_layer)
+        else:
+            out["std"] = None
         out["ink"] = _encode_rgba(ink_layer)
         return out
     except Exception:

@@ -205,6 +205,8 @@ def 叠加图分层能生成PNG():
         assert pngs[name + "_cl"] and pngs[name + "_cl"][:4] == b"\x89PNG", \
             "%s 的中线层应是 PNG" % name
     assert pngs["yellow_cl"] is None, "没有黄色档笔画时中线层也该是 None"
+    # 标准字形层（整字深灰，供「只看标准」）
+    assert pngs["std"] and pngs["std"][:4] == b"\x89PNG", "标准字形层应是 PNG"
     # 绿层里有绿色像素（带 alpha），红层里有红色像素
     green = cv2.imdecode(np.frombuffer(pngs["green"], np.uint8), cv2.IMREAD_UNCHANGED)
     red = cv2.imdecode(np.frombuffer(pngs["red"], np.uint8), cv2.IMREAD_UNCHANGED)
