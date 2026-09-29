@@ -16,11 +16,8 @@
 #   bash launch_server.sh foreground      # 前台跑，Ctrl-C 退出，调试用
 #
 #   HANZI_PORT=8361 bash launch_server.sh          # 换端口
-#   HANZI_MOCK=1 bash launch_server.sh             # 演示模式，不调真模型
-#   HANZI_MODEL=gemini-2.5-flash bash launch_server.sh
 #
-# 真实打分需要 LLM_API_KEY（见 ../../llm_client/README.md）；
-# 没配 key 时用 HANZI_MOCK=1 走演示数据，页面链路一样能跑通。
+# 打分是纯本地的（找格子 / OCR 认字 / 几何比对），不调 LLM、不需要 API key。
 # ============================================================
 set -e
 
@@ -99,11 +96,9 @@ do_start() {
     fi
     mkdir -p "$LOG_DIR"
     echo "============================================"
-    echo "  田字格小老师 - 汉字书写打分服务"
+    echo "  田字格小老师 - 汉字书写打分服务（纯本地）"
     echo "============================================"
     echo "Host/Port : ${HOST}:${PORT}"
-    echo "Model     : ${HANZI_MODEL:-gemini-3.5-flash}"
-    echo "Mock      : ${HANZI_MOCK:-0}"
     echo "Log       : ${LOG_FILE}"
     echo "============================================"
     nohup python3 "$SERVER_PY" --host "$HOST" --port "$PORT" > "$LOG_FILE" 2>&1 &

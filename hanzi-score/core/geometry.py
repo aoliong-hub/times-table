@@ -589,10 +589,13 @@ def _load_source(source):
 def extract(source, char=None):
     """总入口：照片（bytes/路径）→ 几何指标。永不抛异常。
 
-    char 给了就用它当标准字；没给就先本地认字，取最像的当参考。
+    认字总是跑（OCR 便宜且没有 LLM 兜底了）：char 给了就当比对参考
+    （ref_char），照片里实际写的字以 OCR 为准（char）；char 没给则
+    ref_char = OCR 认出的最像的字。
     返回：
-      成功 {"ok":True, "char":参考字|None, "metrics":…, "lines":[…],
-            "recognized":[…]|None, "warped":ndarray, "ink":ndarray}
+      成功 {"ok":True, "char":OCR认出的字, "ref_char":比对参考字,
+            "metrics":…, "lines":[…], "recognized":[…],
+            "warped":ndarray, "ink":ndarray}
       失败 {"ok":False, "reason":"no_cell|too_faint|error", "detail":…}
     """
     try:
@@ -607,16 +610,10 @@ def extract(source, char=None):
         if cv2.countNonZero(ink) < INK_MIN_RATIO * ink.size:
             return {"ok": False, "reason": "too_faint", "detail": "笔迹太淡或没写到"}
 
-        recognized = None
-        ref_char = char
-        std = load_standard(char) if char else None
-        if char and std is None:
-            ref_char = None
-        if not char:
-            recognized = recognize_char(ink, warped=warped)
-            if recognized:
-                ref_char = recognized[0]["char"]
-                std = load_standard(ref_char)
+        recognized = recognize_char(ink, warped=warped) or []
+        ocr_char = recognized[0]["char"] if recognized else None
+        ref_char = char if (char and load_standard(char)) else ocr_char
+        std = load_standard(ref_char)
 
         metrics = compare(ink, render_standard_mask(std["medians"]) if std else None,
                           std["medians"] if std else None,
@@ -626,7 +623,8 @@ def extract(source, char=None):
 
         return {
             "ok": True,
-            "char": ref_char,
+            "char": ocr_char,
+            "ref_char": ref_char,
             "metrics": metrics,
             "lines": lines or [],
             "recognized": recognized,

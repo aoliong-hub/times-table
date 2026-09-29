@@ -15,7 +15,6 @@
     scoreBtn: document.getElementById('score-btn'),
     resetBtn: document.getElementById('reset-btn'),
     error: document.getElementById('error'),
-    mockBadge: document.getElementById('mock-badge'),
     result: document.getElementById('result'),
     scoreNum: document.getElementById('score-num'),
     levelBadge: document.getElementById('level-badge'),
@@ -282,27 +281,16 @@
     }
 
     var bits = [];
-    if (data.model) bits.push('模型 ' + data.model);
     if (typeof data.elapsed === 'number') bits.push('用时 ' + data.elapsed.toFixed(1) + ' 秒');
-    if (data.mock) bits.push('演示数据');
     el.meta.textContent = bits.join('　·　');
 
     show(el.result);
     el.result.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
-  /* ---------- 启动：查一下服务是不是 mock 模式 ---------- */
+  /* ---------- 启动：健康检查（失败不打扰用户，打分时自会报错） ---------- */
 
-  fetch('api/health')
-    .then(function (r) { return r.json(); })
-    .then(function (h) {
-      if (h && h.mock) show(el.mockBadge);
-      else if (h && !h.has_api_key) {
-        el.mockBadge.textContent = '服务器没有配 API key，打分会失败。配好 LLM_API_KEY 后重启服务。';
-        show(el.mockBadge);
-      }
-    })
-    .catch(function () { /* 健康检查失败不打扰用户，打分时自会报错 */ });
+  fetch('api/health').catch(function () {});
 
   /* 星空背景 */
   (function stars() {

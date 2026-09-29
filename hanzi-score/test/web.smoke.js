@@ -71,9 +71,7 @@ function fakeResult(overrides) {
       { key: 'stroke_shape', name: '笔画形态', score: 19, full: 25, comment: '竖有点斜' },
       { key: 'correctness', name: '笔画正确', score: 20, full: 20, comment: '笔画数对' }
     ],
-    model: 'mock',
     elapsed: 0.4,
-    mock: true,
     geometry: null,
     geometry_overlay: null
   }, overrides || {});
@@ -106,7 +104,7 @@ function boot({ health, scoreResult, scoreStatus = 200 } = {}) {
       return Promise.resolve({
         ok: true,
         status: 200,
-        json: () => Promise.resolve(health || { status: 'ok', mock: true, has_api_key: true, model: 'mock' })
+        json: () => Promise.resolve(health || { status: 'ok', mode: 'local' })
       });
     }
     if (/api\/score$/.test(String(url))) {
@@ -149,20 +147,6 @@ it('页面加载后打分按钮是禁用的', async () => {
   await flush();
   assert(doc.getElementById('score-btn').disabled, '没选图就不该能点打分');
   assert(hidden(doc.getElementById('result')), '结果区初始应隐藏');
-});
-
-it('mock模式页头显示演示数据角标', async () => {
-  const { doc } = boot({ health: { status: 'ok', mock: true, has_api_key: true } });
-  await flush();
-  assert(!hidden(doc.getElementById('mock-badge')), 'mock 模式必须挂角标，免得把假分当真');
-});
-
-it('真实模式且没配key时提示配key', async () => {
-  const { doc } = boot({ health: { status: 'ok', mock: false, has_api_key: false } });
-  await flush();
-  const badge = doc.getElementById('mock-badge');
-  assert(!hidden(badge), '没 key 要提示');
-  assert(/API key/.test(badge.textContent), `提示内容不对: ${badge.textContent}`);
 });
 
 it('选好图后出现预览且可以打分', async () => {
