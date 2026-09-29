@@ -191,12 +191,20 @@ def summarize输出中文行():
 
 def 叠加图能生成PNG():
     r = geometry.extract(_render_bytes("木"), "木")
-    std = geometry.load_standard("木")
-    png = geometry.build_overlay_png(r["warped"], std["medians"], r["ink"])
+    png = geometry.build_overlay_png(r["warped"], geometry.load_standard("木"), r["ink"])
     assert png and png[:4] == b"\x89PNG", "叠加图应是 PNG"
     assert len(png) > 1000, "PNG 太小 %d" % len(png)
+    # 浅灰标准字形层要真的画出来了。露出的浅灰 + 被手写盖住的 ≈ 轮廓填充量
+    #（红线中线画在最上层，也会盖掉字形中间一条，所以放宽到七成五）
+    img = cv2.imdecode(np.frombuffer(png, np.uint8), cv2.IMREAD_COLOR)
+    gray_px = int(np.count_nonzero(np.all(img == (200, 200, 200), axis=-1)))
+    filled = geometry.render_standard_filled(geometry.load_standard("木")["strokes"])
+    expect = int(cv2.countNonZero(filled))
+    covered = int(cv2.countNonZero(cv2.bitwise_and(filled, r["ink"])))
+    assert gray_px + covered > expect * 0.75, \
+        "浅灰层 %d + 被盖住 %d 远小于轮廓填充 %d" % (gray_px, covered, expect)
     # 没有标准字时也不炸
-    assert geometry.build_overlay_png(r["warped"], [], None) is not None
+    assert geometry.build_overlay_png(r["warped"], None, None) is not None
 
 
 def 零网络断言():

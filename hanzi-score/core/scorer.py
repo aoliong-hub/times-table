@@ -295,7 +295,7 @@ def score_image(*, image_bytes=None, image_path=None, target_char=None,
             std = _geometry.load_standard(geo["char"]) if geo.get("char") else None
             if std:
                 png = _geometry.build_overlay_png(
-                    geo.get("warped"), std["medians"], geo.get("ink"))
+                    geo.get("warped"), std, geo.get("ink"))
                 if png:
                     overlay_uri = ("data:image/png;base64,"
                                    + base64.b64encode(png).decode("ascii"))

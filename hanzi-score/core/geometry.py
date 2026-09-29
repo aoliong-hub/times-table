@@ -674,6 +674,69 @@ def draw_rice_grid(size=GRID_SIZE, color=(205, 205, 235), thickness=4):
     return grid
 
 
+# ---------------------------------------------------------------- SVG 轮廓渲染
+
+def sample_svg_strokes(strokes, samples_per_curve=32):
+    """把 Make-me-a-Hanzi 的 SVG 路径（M/L/Q/C/Z 绝对命令）采样成多边形点列。
+
+    Q/C 是贝塞尔曲线，按参数均匀采样；Z 闭合回起点。返回 [np.ndarray(N,2)]，
+    坐标仍是原始 1024 空间（含 y 向上问题，由调用方翻转）。
+    """
+    polys = []
+    cur = start = None
+    for cmd, args in re.findall(r"([MLQCZ])([^MLQCZ]*)", "".join(strokes)):
+        nums = [float(v) for v in re.findall(r"-?\d+\.?\d*", args)]
+        if cmd == "M":
+            cur = np.array(nums[:2])
+            start = cur
+            polys.append([cur])
+        elif cmd in "LQC" and cur is not None and polys:
+            pts = np.array(nums).reshape(-1, 2)
+            if cmd == "L":
+                for p in pts:
+                    polys[-1].append(p)
+                cur = pts[-1]
+            else:
+                k = 2 if cmd == "Q" else 3
+                for i in range(0, len(pts), k):
+                    c = pts[i:i + k]
+                    t = np.linspace(0, 1, samples_per_curve)[:, None]
+                    if len(c) == 2:
+                        seg = (1 - t) ** 2 * cur + 2 * (1 - t) * t * c[0] + t ** 2 * c[1]
+                    else:
+                        seg = ((1 - t) ** 3 * cur + 3 * (1 - t) ** 2 * t * c[0]
+                               + 3 * (1 - t) * t ** 2 * c[1] + t ** 3 * c[2])
+                    polys[-1].extend(seg)
+                    cur = c[-1]
+        elif cmd == "Z" and polys:
+            polys[-1].append(start)
+            cur = start
+    return [np.array(p) for p in polys if len(p) >= 3]
+
+
+def _polys_scaled(polys, size):
+    """多边形缩放到 size×size（含 y 翻转，落成 y 向下画布坐标）。"""
+    scale = size / float(GRID_SIZE)
+    out = []
+    for poly in polys:
+        p = poly.astype(np.float64).copy()
+        p[:, 1] = GRID_SIZE - p[:, 1]        # 数据 y 向上 → 翻成 y 向下
+        out.append((p * scale).astype(np.int32))
+    return out
+
+
+def render_standard_filled(strokes, size=GRID_SIZE):
+    """按 SVG 轮廓路径把标准字填充渲染成 uint8 mask（0/255）。
+
+    和 hanzi-writer/preview.html 的画法一致（书法字形：撇尖捺展、粗细有变化），
+    比 medians 加粗折线好看得多。strokes 为空返回全 0。
+    """
+    canvas = np.zeros((size, size), np.uint8)
+    for poly in _polys_scaled(sample_svg_strokes(strokes), size):
+        cv2.fillPoly(canvas, [poly], 255)
+    return canvas
+
+
 def _measure_stroke_width(ink):
     """从手写墨迹估笔画宽（各连通域距离变换最大值×2 的中位数），量不出返回 None。"""
     if ink is None or not cv2.countNonZero(ink):
@@ -689,21 +752,21 @@ def _measure_stroke_width(ink):
         return None
 
 
-def build_overlay_png(warped, medians, ink=None):
+def build_overlay_png(warped, std, ink=None):
     """对比图（三层，画在同一个米字格里）：
 
-    底层 浅灰 = 标准字的笔画形状（宽度取手写实测笔画宽，粗细对齐好比较）
+    底层 浅灰 = 标准字的笔画形状（SVG 轮廓填充，和 preview.html 同款书法字形）
     中层 黑色 = 手写笔迹
     顶层 红色 = 标准笔画的中线（起点画圆点）
     """
     try:
         overlay = draw_rice_grid()
+        medians = (std or {}).get("medians") or []
+        strokes = (std or {}).get("strokes") or []
 
-        # 底层：标准字形，浅灰。宽度跟手写实测对齐，消掉粗细差异的干扰
-        if medians:
-            w = _measure_stroke_width(ink) or DEFAULT_STROKE_W
-            w = int(max(STROKE_W_MIN, min(STROKE_W_MAX, w)))
-            gray_mask = render_standard_mask(medians, width=w)
+        # 底层：标准字形，浅灰（按轮廓填充，和 hanzi-writer 渲染一致）
+        if strokes:
+            gray_mask = render_standard_filled(strokes)
             overlay[gray_mask > 0] = (200, 200, 200)        # BGR 浅灰
 
         # 中层：手写笔迹（黑）
