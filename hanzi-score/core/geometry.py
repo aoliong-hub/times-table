@@ -49,6 +49,15 @@ LINE_THIN = 12            # 归一化后细于它的长直线当格线（笔画�
 LINE_LONG = 0.85 * GRID_SIZE   # 长过它的细直线当格线
 RED_KILL_FALLBACK = 0.2   # 剔红线后墨迹不足纯二值化的 20% → 认为误杀，回退
 
+# 自适应格线/墨迹分离（_grid_line_mask、extract_ink 共用）：
+# 比当地纸面暗 >18 算非纸面；暗 >55 且低饱和算手写墨迹；
+# 真黑（gray<40）无条件算墨迹——暗部 HSV 的 S 是比值、黑像素会虚高
+# 成 255 完全不可信，而暗红格线核心的 gray 通常 >60，不会误伤
+DIFF_NOT_PAPER = 14
+DIFF_INK = 55
+INK_SAT_MAX = 70
+GRAY_INK_MAX = 40
+
 _CJK_RE = re.compile("[一-鿿]")
 
 # hanzi-writer-data 实测是 **y 轴向上**，且基线不在画布底：数据 y ∈ [-124, 900]
@@ -169,12 +178,24 @@ def _run_profile(mask):
     return best
 
 
+def _clean_mask(mask, min_px=16):
+    """去掉碎小连通域（纸纹/噪点），保住格线段和虚线段。"""
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(
+        mask.astype(np.uint8), 8)
+    keep = np.zeros(mask.shape, bool)
+    for i in range(1, n):
+        if stats[i, cv2.CC_STAT_AREA] >= min_px:
+            keep[labels == i] = True
+    return keep
+
+
 def _line_positions(profile, length):
     """从 1D 红线投影里找线的位置：超阈值的索引聚簇取中心。
 
     返回 [(中心位置, 覆盖的索引列表), ...]。阈值 0.4×峰值：实线外框
     投影强；虚线中线连续段短，一般被排除，被遮挡裁切的边框也能留下。
-    是否真是格线由 _solid_lines 按线段数二次判别。
+    是否真是格线由 _find_cells_lines 按对角线特征二次判别。
+    阴影边界形成的「宽线带」按簇的厚度过滤（真格线只有几个像素宽）。
     """
     if len(profile) == 0 or profile.max() <= 0:
         return []
@@ -182,6 +203,7 @@ def _line_positions(profile, length):
     if len(idxs) == 0:
         return []
     gap = max(3, length // 100)
+    max_thick = max(8, length // 40)   # 斜拍会让线宽涨到 5~7px，别卡太紧
     groups, cur = [], [idxs[0]]
     for i in idxs[1:]:
         if i - cur[-1] <= gap:
@@ -190,7 +212,8 @@ def _line_positions(profile, length):
             groups.append(cur)
             cur = [i]
     groups.append(cur)
-    return [(float(np.mean(g)), g) for g in groups]
+    return [(float(np.mean(g)), g) for g in groups
+            if g[-1] - g[0] + 1 <= max_thick]
 
 
 def _count_segments(flags):
@@ -287,23 +310,92 @@ def _find_cells_lines(red, clusters, lo, hi, horizontal):
     return keep
 
 
-def find_cells(bgr):
-    """从整张照片里找出所有田字格，按阅读顺序（先上后下、行内从左到右）排列。
+def _grid_line_mask(bgr, k=None, th=None):
+    """自适应「格线层」mask：格线 + 彩色批改笔痕，不含手写墨迹。
 
-    用红线在 x/y 两个方向的最大连续段投影找格线位置——虚线中线投影
-    很短，被阈值排除；相邻格线的间距接近中位数的才算格子边界，这样
-    共享边框的并排格、多行格、整页格子都能切开。
-    返回四角点列表（每个 4×2 float32），找不到返回 []。
+    用局部背景估计（闭运算把细线/笔画抹平得到当地纸面亮度）：
+      - 比当地纸面暗一档（>th）：非纸面（格线、批改痕等）；
+      - 其中又暗得多（>DIFF_INK）且低饱和的：手写墨迹（铅笔/中性笔），
+        从格线层剔除——红格线饱和度高不会被误剔，灰格线只暗一档本来
+        就不在墨迹里；真黑（gray<GRAY_INK_MAX）无条件算墨迹，暗部
+        HSV 的 S 是比值、黑像素会虚高成 255 不可信。
     """
+    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+    hsv_s = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)[:, :, 1]
+    if k is None:
+        # 闭运算核要盖过笔画/虚线间隙，但别太大（大核很慢）
+        k = min(101, max(31, (min(gray.shape) // 10) | 1))
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
+    local_bg = cv2.morphologyEx(gray, cv2.MORPH_CLOSE, kernel)
+    diff = local_bg.astype(np.int16) - gray.astype(np.int16)
+    not_paper = diff > (DIFF_NOT_PAPER if th is None else th)
+    ink = (diff > DIFF_INK) & ((hsv_s < INK_SAT_MAX) | (gray < GRAY_INK_MAX))
+    return not_paper & ~ink
+
+
+def _deskew_angle(mask):
+    """从格线 mask 估计照片倾斜角（度）。用接近水平的 Hough 线段取中位角。"""
+    lines = cv2.HoughLinesP(mask.astype(np.uint8) * 255, 1, np.pi / 180,
+                            threshold=80,
+                            minLineLength=mask.shape[1] // 5, maxLineGap=6)
+    if lines is None:
+        return 0.0
+    angles = []
+    for x1, y1, x2, y2 in lines[:, 0]:
+        ang = np.degrees(np.arctan2(int(y2) - int(y1), int(x2) - int(x1)))
+        if abs(ang) < 12:
+            angles.append(ang)
+    return float(np.median(angles)) if len(angles) >= 3 else 0.0
+
+
+def _find_cells_once(bgr, th):
+    """按给定「非纸面」阈值跑一遍完整分割，返回 cells 或 []。"""
     try:
-        red = (_red_mask(bgr) > 0)
+        h_full, w_full = bgr.shape[:2]
+        # 只对很大的照片缩放（≤2000px 原样处理：缩放会把虚线中线
+        # 糊成连续浅线，导致整格被中线劈开）
+        scale = min(1.0, 2000.0 / max(h_full, w_full))
+        if scale < 1.0:
+            small = cv2.resize(bgr, None, fx=scale, fy=scale,
+                               interpolation=cv2.INTER_AREA)
+        else:
+            small = bgr
+        mask = _grid_line_mask(small, th=th)
+        if int(mask.sum()) < 30:
+            return []
+        mask = _clean_mask(mask)
+        if int(mask.sum()) < 30:
+            return []
+        # 旋正：斜拍会让投影里的整条线摊到相邻几行/列，先转回来。
+        # 小角度不值得转——NEAREST 旋转会把细线打断成锯齿
+        angle = _deskew_angle(mask)
+        h_s, w_s = small.shape[:2]
+        if abs(angle) > 1.5:
+            c, s = abs(np.cos(np.radians(angle))), abs(np.sin(np.radians(angle)))
+            nw, nh = int(w_s * c + h_s * s), int(w_s * s + h_s * c)
+            M = cv2.getRotationMatrix2D((w_s / 2.0, h_s / 2.0), angle, 1.0)
+            M[0, 2] += (nw - w_s) / 2.0
+            M[1, 2] += (nh - h_s) / 2.0
+            work_img = cv2.warpAffine(small, M, (nw, nh))
+            work_mask = cv2.warpAffine(mask.astype(np.uint8) * 255, M, (nw, nh),
+                                       flags=cv2.INTER_NEAREST)
+            work = work_mask > 0
+            M_inv = cv2.invertAffineTransform(M)   # 工作图坐标 → small 坐标
+        else:
+            work_img, work = small, mask
+            M_inv = None
+        red = work
         if int(red.sum()) < 30:
             return []
-        h_img, w_img = bgr.shape[:2]
+        h_img, w_img = work.shape[:2]
         min_side = 0.04 * min(w_img, h_img)   # 格子最小边，滤掉细碎噪声
 
         xclusters = _line_positions(_run_profile(red), w_img)
         yclusters = _line_positions(_run_profile(red.T), h_img)
+        # 图像最边缘的候选线多为暗边/阴影边界，不是格线，丢弃
+        edge = max(3, int(0.015 * max(w_img, h_img)))
+        xclusters = [(c, i) for c, i in xclusters if edge < c < w_img - edge]
+        yclusters = [(c, i) for c, i in yclusters if edge < c < h_img - edge]
         # 去掉内部中线：中点被对角线穿过的候选线（用另一轴的外沿做跨度）
         if xclusters and yclusters:
             ys_all = [c for c, _ in yclusters]
@@ -346,9 +438,34 @@ def find_cells(bgr):
                 cells.append(_order_quad(quad))
         if len(cells) > 30:       # 防御：投影出几百个"格子"说明照片不对劲
             return []
+        # 工作图坐标 → 缩放图坐标 → 原图坐标
+        if M_inv is not None:
+            cells = [cv2.transform(c.reshape(-1, 1, 2), M_inv).reshape(-1, 2)
+                     for c in cells]
+        if scale < 1.0:
+            inv = 1.0 / scale
+            cells = [c * inv for c in cells]
         return cells
     except Exception:
         return []
+
+
+def find_cells(bgr):
+    """从整张照片里找出所有田字格，按阅读顺序（先上后下、行内从左到右）排列。
+
+    格线 mask 用 _grid_line_mask 自适应（红格/灰格/绿格本都行）。照片
+    略斜时先用 Hough 估计角度旋正再投影找线，最后把四角点按逆变换
+    映射回原图坐标。相邻格线的间距接近中位数的才算格子边界，这样
+    共享边框的并排格、多行格、整页格子都能切开。
+    「非纸面」阈值走阶梯：干净照片用标准值，暗淡/低对比的照片逐级
+    放宽重试（阈值越低噪声越多，只在上一级失败时才降）。
+    返回四角点列表（每个 4×2 float32），找不到返回 []。
+    """
+    for th in (18, 14, 10):
+        cells = _find_cells_once(bgr, th)
+        if cells:
+            return cells
+    return []
 
 
 def crop_quad(bgr, quad, margin=0.08):
@@ -361,24 +478,26 @@ def crop_quad(bgr, quad, margin=0.08):
     return bgr[y0:y1, x0:x1]
 
 
-def find_cell(bgr):
-    """检测田字格外框。返回 {"quad","method"}，不是田字格照片返回 None。
+def _find_cell_from_mask(mask, size, adaptive=False):
+    """从格线 mask 的最大连通域提取外框四角点（poly 优先，退 minAreaRect）。
 
-    红线 mask 里虚线中线会和外框连成一个连通域，没关系——
-    取最大连通域的外轮廓，包住它的仍然是外框四边形。
+    adaptive=True（灰格练习本的回退路径）时额外做合理性校验：
+    外框应接近方形（长宽比 0.5~2.0）、面积占图的 8%~85%——防止把
+    阴影边界或整页暗区当成格子。
     """
-    red = _red_mask(bgr)
-    if cv2.countNonZero(red) < 0.005 * red.size:
+    mask = (mask > 0).astype(np.uint8)   # countNonZero 不认 bool
+    if cv2.countNonZero(mask) < 0.005 * mask.size:
         return None
-    closed = cv2.morphologyEx(red, cv2.MORPH_CLOSE, np.ones((9, 9), np.uint8))
+    closed = cv2.morphologyEx(mask.astype(np.uint8), cv2.MORPH_CLOSE,
+                              np.ones((9, 9), np.uint8))
     n, labels = cv2.connectedComponents(closed, 8)
     if n < 2:
         return None
     counts = np.bincount(labels.ravel())
     counts[0] = 0
     idx = int(np.argmax(counts))
-    red_total = cv2.countNonZero(red)
-    if counts[idx] < 0.5 * red_total:     # 最大的那个连通域得吃掉大部分红线
+    total = cv2.countNonZero(mask)
+    if counts[idx] < 0.5 * total:     # 最大的那个连通域得吃掉大部分格线
         return None
     keep = np.zeros_like(closed)
     keep[labels == idx] = 255
@@ -389,12 +508,38 @@ def find_cell(bgr):
     peri = cv2.arcLength(contour, True)
     approx = cv2.approxPolyDP(contour, 0.02 * peri, True)
     if len(approx) == 4 and cv2.isContourConvex(approx) and \
-            cv2.contourArea(approx) > 0.3 * red.size:
-        return {"quad": _order_quad(approx.reshape(4, 2)), "method": "poly"}
-    rect = cv2.minAreaRect(contour)
-    box = cv2.boxPoints(rect)
-    if cv2.contourArea(box) > 0.3 * red.size:
-        return {"quad": _order_quad(box), "method": "rect"}
+            cv2.contourArea(approx) > 0.3 * mask.size:
+        quad = _order_quad(approx.reshape(4, 2))
+    else:
+        rect = cv2.minAreaRect(contour)
+        box = cv2.boxPoints(rect)
+        if cv2.contourArea(box) <= 0.3 * mask.size:
+            return None
+        quad = _order_quad(box)
+    if adaptive:
+        x, y, w, h = cv2.boundingRect(quad.astype(np.float32))
+        if not (0.5 <= w / float(h) <= 2.0):
+            return None
+        if not (0.08 * size[0] * size[1] <= w * h <= 0.85 * size[0] * size[1]):
+            return None
+    return {"quad": quad, "method": "poly"}
+
+
+def find_cell(bgr):
+    """检测单格田字格外框。返回 {"quad","method"}，不是田字格照片返回 None。
+
+    优先红格线（历史主路径）；红色像素太少时按自适应格线层重试
+    （灰格/黑格练习本）。格线层里虚线中线会和外框连成一个连通域，
+    没关系——取最大连通域的外轮廓，包住它的仍然是外框四边形。
+    """
+    red = _red_mask(bgr)
+    if cv2.countNonZero(red) >= 0.005 * red.size:
+        return _find_cell_from_mask(red > 0, bgr.shape[:2])
+    for th in (18, 14, 10):
+        gmask = _clean_mask(_grid_line_mask(bgr, th=th))
+        result = _find_cell_from_mask(gmask, bgr.shape[:2], adaptive=True)
+        if result:
+            return result
     return None
 
 
@@ -426,6 +571,16 @@ def extract_ink(warped):
         cleaned = cv2.bitwise_and(binary, cv2.bitwise_not(red_big))
         if cv2.countNonZero(cleaned) >= RED_KILL_FALLBACK * cv2.countNonZero(binary):
             binary = cleaned
+
+    # 局部对比度剔灰格线：灰线只比当地纸面暗一档（< DIFF_INK），
+    # 手写墨迹暗得多。纸面亮度用 dilate（局部最大）估计——闭运算的
+    # 核若不比笔画宽，会陷进粗笔画内部把真墨迹误判成「浅」
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (151, 151))
+    local_bg = cv2.dilate(gray, kernel)
+    faint = ((local_bg.astype(np.int16) - gray.astype(np.int16)) < DIFF_INK)
+    cleaned = cv2.bitwise_and(binary, (~faint).astype(np.uint8) * 255)
+    if cv2.countNonZero(cleaned) >= RED_KILL_FALLBACK * cv2.countNonZero(binary):
+        binary = cleaned
 
     # 去噪点、剔幸存的细长格线（一字的横约 20px 粗，不会被误删）
     n, labels, stats, _ = cv2.connectedComponentsWithStats(binary, 8)
@@ -798,9 +953,10 @@ def _load_source(source):
         return None
 
 
-def extract(source, char=None):
+def extract(source, char=None, quad=None):
     """总入口：照片（bytes/路径）→ 几何指标。永不抛异常。
 
+    quad 给了就跳过找框直接用（多格分割的每一格），否则单格自动检测。
     认字总是跑（OCR 便宜且没有 LLM 兜底了）：char 给了就当比对参考
     （ref_char），照片里实际写的字以 OCR 为准（char）；char 没给则
     ref_char = OCR 认出的最像的字。
@@ -814,9 +970,12 @@ def extract(source, char=None):
         img = _load_source(source)
         if img is None:
             return {"ok": False, "reason": "error", "detail": "图片读不开"}
-        cell = find_cell(img)
-        if cell is None:
-            return {"ok": False, "reason": "no_cell", "detail": "没找到田字格外框"}
+        if quad is not None:
+            cell = {"quad": np.asarray(quad, np.float32), "method": "given"}
+        else:
+            cell = find_cell(img)
+            if cell is None:
+                return {"ok": False, "reason": "no_cell", "detail": "没找到田字格外框"}
         warped = warp_to_cell(img, cell["quad"])
         ink = extract_ink(warped)
         if cv2.countNonZero(ink) < INK_MIN_RATIO * ink.size:

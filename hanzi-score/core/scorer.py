@@ -231,12 +231,10 @@ def score_image_multi(*, image_bytes=None, image_path=None, target_char=None):
     for i, quad in enumerate(cells):
         item = {"cell": i + 1}
         try:
-            crop = geometry.crop_quad(img, quad, margin=0.08)
-            ok, buf = cv2.imencode(".png", crop)
-            if not ok:
-                raise ScoreError("格子截图失败")
-            item.update(score_image(image_bytes=buf.tobytes(),
-                                    target_char=target_char))
+            # 直接用分割出的四角点透视归一，不再逐格重复找框
+            item.update(score_image(image_bytes=image_bytes,
+                                    image_path=image_path,
+                                    target_char=target_char, quad=quad))
         except ScoreError as exc:
             item["error"] = str(exc)
         results.append(item)
@@ -244,13 +242,15 @@ def score_image_multi(*, image_bytes=None, image_path=None, target_char=None):
             "elapsed": round(time.time() - started, 3)}
 
 
-def score_image(*, image_bytes=None, image_path=None, target_char=None):
+def score_image(*, image_bytes=None, image_path=None, target_char=None,
+                quad=None):
     """给一张田字格练字图打分（纯本地，不调任何外部服务）。
 
     Args:
         image_bytes: 图片字节（上传场景，不落盘）。
         image_path:  图片路径（CLI / 批量场景）。二者给一个即可。
         target_char: 这一格应该写的字，可选；不填则用 OCR 认字。
+        quad: 这一格的四角点（多格分割的产物），给了就跳过单格检测。
 
     Returns:
         前端要的评分 dict（含 geometry / geometry_overlay / elapsed）。
@@ -265,7 +265,7 @@ def score_image(*, image_bytes=None, image_path=None, target_char=None):
     target_char = clean_target_char(target_char)
     started = time.time()
 
-    geo = geometry.extract(source, target_char)
+    geo = geometry.extract(source, target_char, quad=quad)
     if not geo.get("ok"):
         reason = geo.get("reason")
         detail = geo.get("detail") or "图片没量出有效内容"
