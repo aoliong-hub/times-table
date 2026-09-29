@@ -292,33 +292,46 @@ it('带几何结果时显示照片与标准并排对比和分层叠加图', asyn
   assert(doc.getElementById('geometry-ink').src === 'data:image/png;base64,I', '手写层没设上');
   assert(doc.getElementById('geometry-layer-green').src === 'data:image/png;base64,Gr', '绿层没设上');
   assert(doc.getElementById('geometry-cl-green').src === 'data:image/png;base64,Gc', '绿档中线层没设上');
-  assert(doc.getElementById('geometry-layer-yellow').style.display === 'none',
-    '没有黄色层时应隐藏');
-  // 筛选按钮：点红 → 只显示红层（笔画和中线一起显隐）
+  // 没有黄色档笔画 → 黄色按钮置灰不可点，绿红两档默认显示
+  const yellowBtn = doc.querySelector('#layer-btns [data-layer="yellow"]');
+  assert(yellowBtn.disabled, '没有黄色档时按钮应禁用');
+  assert(doc.getElementById('geometry-layer-green').style.display === '', '绿层默认显示');
+  // 独立开关：点红只关红，绿不受影响
   const redBtn = doc.querySelector('#layer-btns [data-layer="red"]');
   redBtn.dispatchEvent(new win.Event('click', { bubbles: true }));
-  assert(doc.getElementById('geometry-layer-green').style.display === 'none', '点红后绿层应隐藏');
-  assert(doc.getElementById('geometry-cl-green').style.display === 'none', '点红后绿档中线应隐藏');
-  assert(doc.getElementById('geometry-layer-red').style.display === '', '点红后红层应显示');
-  assert(doc.getElementById('geometry-cl-red').style.display === '', '点红后红档中线应显示');
-  assert(redBtn.classList.contains('active'), '点红后按钮应高亮');
-  // 全部
-  doc.querySelector('#layer-btns [data-layer="all"]')
-    .dispatchEvent(new win.Event('click', { bubbles: true }));
-  assert(doc.getElementById('geometry-layer-green').style.display === '', '点全部后绿层应恢复');
-  assert(doc.getElementById('geometry-cl-green').style.display === '', '点全部后绿档中线应恢复');
-  // 只看标准：隐藏手写和彩色层，显示深灰标准字形层，再点恢复
+  assert(doc.getElementById('geometry-layer-red').style.display === 'none', '点红后红层应隐藏');
+  assert(doc.getElementById('geometry-cl-red').style.display === 'none', '点红后红档中线应隐藏');
+  assert(doc.getElementById('geometry-layer-green').style.display === '', '点红不应影响绿层');
+  assert(!redBtn.classList.contains('active'), '关掉后按钮不应高亮');
+  // 再点红恢复
+  redBtn.dispatchEvent(new win.Event('click', { bubbles: true }));
+  assert(doc.getElementById('geometry-layer-red').style.display === '', '再点红应恢复');
+  // 只看标准：独立开关，隐藏手写、显示灰色标准字形；彩色开关不受影响
   const stdBtn = doc.getElementById('btn-standard');
   stdBtn.dispatchEvent(new win.Event('click', { bubbles: true }));
   assert(doc.getElementById('geometry-ink').style.display === 'none', '只看标准应隐藏手写层');
-  assert(doc.getElementById('geometry-layer-green').style.display === 'none',
-    '只看标准应隐藏彩色层');
   assert(doc.getElementById('geometry-std').style.display === '', '只看标准应显示标准字形层');
+  assert(doc.getElementById('geometry-layer-green').style.display === '',
+    '只看标准不影响彩色开关（绿仍显示）');
   assert(stdBtn.classList.contains('active'), '只看标准按钮应高亮');
+  // 只看标准模式下关掉绿：灰字从绿的空缺里露出来
+  doc.querySelector('#layer-btns [data-layer="green"]')
+    .dispatchEvent(new win.Event('click', { bubbles: true }));
+  assert(doc.getElementById('geometry-layer-green').style.display === 'none',
+    '只看标准时也能关绿档');
+  assert(doc.getElementById('geometry-std').style.display === '', '标准字形层仍显示');
+  assert(doc.getElementById('geometry-ink').style.display === 'none', '手写层保持隐藏');
+  // 退出只看标准：手写恢复，绿的开关状态保持
   stdBtn.dispatchEvent(new win.Event('click', { bubbles: true }));
-  assert(doc.getElementById('geometry-ink').style.display === '', '再点应恢复手写层');
-  assert(doc.getElementById('geometry-std').style.display === 'none', '再点应隐藏标准字形层');
-  assert(doc.getElementById('geometry-layer-green').style.display === '', '再点应恢复彩色层');
+  assert(doc.getElementById('geometry-ink').style.display === '', '退出后手写应恢复');
+  assert(doc.getElementById('geometry-std').style.display === 'none', '退出后标准层应隐藏');
+  assert(doc.getElementById('geometry-layer-green').style.display === 'none',
+    '退出后绿档保持关闭');
+  // 全部：三个档全开
+  doc.querySelector('#layer-btns [data-layer="all"]')
+    .dispatchEvent(new win.Event('click', { bubbles: true }));
+  assert(doc.getElementById('geometry-layer-green').style.display === '', '全部应恢复绿层');
+  assert(doc.getElementById('geometry-layer-red').style.display === '', '全部应保持红层');
 });
 
 it('没带几何结果时隐藏程序量了量区块', async () => {
