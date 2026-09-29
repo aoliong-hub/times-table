@@ -738,6 +738,7 @@ def _points_mask(points, size=_RECOGNIZE_SIZE):
 
 _OCR_MIN_CONF = 0.5      # OCR 置信度低于它时，认字结果里补充模板匹配候选
 _OCR_ACCEPT = 0.35       # 置信度低于它才真正跑模板兜底（模板打全库较慢）
+_OCR_EARLY_EXIT = 0.7    # 候选输入里已经拿到这个置信度就不用再试下一路
 _ocr_engine = None       # RapidOCR 懒加载单例
 
 
@@ -756,16 +757,13 @@ def _get_ocr():
 def _char_crop_clean(warped, ink, size=64, margin=0.2):
     """从归一化图里裁出字块：白底黑字（格线已剔），等比留边，方pad 后缩放。
 
-    这是喂给 OCR 识别模型的图：去格线干扰、居中、大小统一。
+    喂给比对/展示用的干净字块。OCR 的输入走 _ocr_crops（真实灰度
+    纹理的信息量远高于二值 mask，实测置信度 0.99 vs 0.42）。
     """
-    ys, xs = np.nonzero(ink > 0)
-    if len(xs) == 0:
+    region = _ink_region(warped, ink, margin)
+    if region is None:
         return None
-    x0, x1, y0, y1 = xs.min(), xs.max(), ys.min(), ys.max()
-    m = int(margin * max(x1 - x0, y1 - y0))
-    h, w = warped.shape[:2]
-    x0, y0 = max(0, x0 - m), max(0, y0 - m)
-    x1, y1 = min(w, x1 + m), min(h, y1 + m)
+    x0, y0, x1, y1 = region
     crop = warped[y0:y1 + 1, x0:x1 + 1]
     clean = np.full_like(crop, 255)
     clean[ink[y0:y1 + 1, x0:x1 + 1] > 0] = (40, 40, 40)
@@ -774,6 +772,47 @@ def _char_crop_clean(warped, ink, size=64, margin=0.2):
     oy, ox = (side - clean.shape[0]) // 2, (side - clean.shape[1]) // 2
     pad[oy:oy + clean.shape[0], ox:ox + clean.shape[1]] = clean
     return cv2.resize(pad, (size, size))
+
+
+def _ink_region(warped, ink, margin=0.2):
+    """墨迹的外接框（带 margin，裁到图内）。没有墨迹返回 None。"""
+    ys, xs = np.nonzero(ink > 0)
+    if len(xs) == 0:
+        return None
+    x0, x1, y0, y1 = xs.min(), xs.max(), ys.min(), ys.max()
+    m = int(margin * max(x1 - x0, y1 - y0))
+    h, w = warped.shape[:2]
+    return max(0, x0 - m), max(0, y0 - m), min(w, x1 + m), min(h, y1 + m)
+
+
+def _ocr_crops(warped, ink):
+    """OCR 识别模型的输入候选，按优先级排列：
+
+    1. 对比度归一的灰度字块（256px）——保留真实笔触浓淡，实测对
+       淡铅笔字的置信度 ~0.99，远高于二值 mask 的 ~0.4
+    2. 墨迹 mask 平滑加粗版（128px）——灰度不可靠（彩色纸/阴影重）
+       时的兜底；先高斯再阈值去低分辨率锯齿，dilate 恢复笔画重量
+    """
+    region = _ink_region(warped, ink)
+    if region is None:
+        return []
+    x0, y0, x1, y1 = region
+    crops = []
+    gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)[y0:y1 + 1, x0:x1 + 1]
+    side = max(gray.shape)
+    oy, ox = (side - gray.shape[0]) // 2, (side - gray.shape[1]) // 2
+    padg = np.full((side, side), 255, np.uint8)
+    padg[oy:oy + gray.shape[0], ox:ox + gray.shape[1]] = gray
+    norm = cv2.normalize(padg, None, 0, 255, cv2.NORM_MINMAX)
+    crops.append(("gray", cv2.resize(norm, (256, 256))))
+    mask = ink[y0:y1 + 1, x0:x1 + 1]
+    padm = np.zeros((side, side), np.uint8)
+    padm[oy:oy + mask.shape[0], ox:ox + mask.shape[1]] = mask
+    blur = cv2.GaussianBlur(padm, (5, 5), 0)
+    smooth = ((blur > 100) * 255).astype(np.uint8)
+    thick = cv2.dilate(smooth, np.ones((5, 5), np.uint8))
+    crops.append(("mask", cv2.resize(thick, (128, 128))))
+    return crops
 
 
 def recognize_char(ink_mask, warped=None, top_n=5):
@@ -789,19 +828,25 @@ def recognize_char(ink_mask, warped=None, top_n=5):
 
         ocr = _get_ocr() if warped is not None else None
         if ocr is not None:
-            crop = _char_crop_clean(warped, ink_mask)
-            if crop is not None:
+            # 逐个候选输入尝试，保留置信度最高的；conf 够高就提前收工
+            for _name, crop in _ocr_crops(warped, ink_mask):
                 res, _ = ocr(crop, use_det=False, use_cls=False, use_rec=True)
-                if res:
-                    text, conf = res[0][0], float(res[0][1])
-                    # 破折号/片假名这类 OCR 常见误认，换回汉字「一」
-                    if text in ("—", "—", "ー", "－"):
-                        text = "一"
-                    if _CJK_RE.search(text or ""):
-                        ch = _CJK_RE.search(text).group(0)
-                        results.append({"char": ch, "score": round(conf, 4),
-                                        "source": "ocr"})
-                        seen.add(ch)
+                if not res:
+                    continue
+                text, conf = res[0][0], float(res[0][1])
+                # 破折号/片假名这类 OCR 常见误认，换回汉字「一」
+                if text in ("—", "—", "ー", "－"):
+                    text = "一"
+                mm = _CJK_RE.search(text or "")
+                if not mm:
+                    continue
+                ch = mm.group(0)
+                if not results or conf > results[0]["score"]:
+                    results.insert(0, {"char": ch, "score": round(conf, 4),
+                                       "source": "ocr"})
+                seen.add(ch)
+                if results[0]["score"] >= _OCR_EARLY_EXIT:
+                    break
 
         if not results or results[0]["score"] < _OCR_MIN_CONF:
             # OCR 结果太差才走模板兜底。但 OCR 置信度 ≥ _OCR_ACCEPT 时的
