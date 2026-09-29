@@ -1,10 +1,11 @@
-/* 田字格小老师 —— 上传、打分、渲染结果 */
+/* 田字格小老师 —— 上传、打分、渲染结果（单卡片两状态） */
 (function () {
   'use strict';
 
   var MAX_BYTES = 8 * 1024 * 1024;
 
   var el = {
+    stepUpload: document.getElementById('step-upload'),
     targetChar: document.getElementById('target-char'),
     dropZone: document.getElementById('drop-zone'),
     fileInput: document.getElementById('file-input'),
@@ -16,6 +17,7 @@
     resetBtn: document.getElementById('reset-btn'),
     error: document.getElementById('error'),
     result: document.getElementById('result'),
+    scoreRing: document.getElementById('score-ring'),
     scoreNum: document.getElementById('score-num'),
     levelBadge: document.getElementById('level-badge'),
     charLine: document.getElementById('char-line'),
@@ -96,9 +98,10 @@
     el.fileName.textContent = file.name || '已选好照片';
     hide(el.dropHint);
     show(el.previewWrap);
-    show(el.resetBtn);
-    el.scoreBtn.disabled = false;
+    show(el.stepUpload);
     hide(el.result);
+    hide(el.resetBtn);
+    el.scoreBtn.disabled = false;
   }
 
   function resetAll() {
@@ -110,6 +113,7 @@
     hide(el.previewWrap);
     hide(el.resetBtn);
     hide(el.result);
+    show(el.stepUpload);
     clearError();
     el.scoreBtn.disabled = true;
   }
@@ -167,7 +171,6 @@
   function setBusy(on) {
     busy = on;
     el.scoreBtn.disabled = on || !currentFile;
-    el.resetBtn.disabled = on;
     el.scoreBtn.textContent = on ? '老师正在看…' : '开始打分';
     el.scoreBtn.classList.toggle('waiting', on);
   }
@@ -208,6 +211,9 @@
 
   function render(data) {
     el.scoreNum.textContent = data.total;
+    // 分数圈颜色：>=80 绿，>=60 黄，其余红
+    el.scoreRing.classList.toggle('mid', data.total >= 60 && data.total < 80);
+    el.scoreRing.classList.toggle('bad', data.total < 60);
     el.levelBadge.textContent = (data.emoji ? data.emoji + ' ' : '') +
       (data.badge || data.level || '');
 
@@ -323,25 +329,14 @@
     if (typeof data.elapsed === 'number') bits.push('用时 ' + data.elapsed.toFixed(1) + ' 秒');
     el.meta.textContent = bits.join('　·　');
 
+    // 切到结果态
+    hide(el.stepUpload);
     show(el.result);
+    show(el.resetBtn);
     el.result.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   /* ---------- 启动：健康检查（失败不打扰用户，打分时自会报错） ---------- */
 
   fetch('api/health').catch(function () {});
-
-  /* 星空背景 */
-  (function stars() {
-    var box = document.querySelector('.stars');
-    if (!box) return;
-    for (var i = 0; i < 60; i++) {
-      var s = document.createElement('span');
-      s.className = 'star';
-      s.style.left = Math.random() * 100 + '%';
-      s.style.top = Math.random() * 100 + '%';
-      s.style.animationDelay = (Math.random() * 3).toFixed(2) + 's';
-      box.appendChild(s);
-    }
-  })();
 })();
