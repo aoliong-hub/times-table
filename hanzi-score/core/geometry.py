@@ -407,7 +407,7 @@ def _find_cells_once(bgr, th):
         else:
             xs, ys = [], []
 
-        cells = _cells_from_lines(xs, ys, min_side)
+        cells = _cells_from_lines(xs, ys, min_side, dims=(w_img, h_img))
         if not cells:
             return []
         # 工作图坐标 → 缩放图坐标 → 原图坐标
@@ -422,9 +422,39 @@ def _find_cells_once(bgr, th):
         return []
 
 
-def _cells_from_lines(xs, ys, min_side):
+def _fill_gaps(lines, dims_limit=None):
+    """局部补漏检的格线：相邻两线间距约等于 2 倍（或更多倍）中位间距时，
+    在中间按等分插值补线。练习本页面常有弧度（书脊处行距变窄），
+    不能整页拉等差网格，只在确实漏线的地方局部补。"""
+    if len(lines) < 2:
+        return list(lines)
+    med = float(np.median(np.diff(lines)))
+    if med <= 0:
+        return list(lines)
+    out = []
+    for a, b in zip(lines, lines[1:]):
+        out.append(float(a))
+        steps = int(round((b - a) / med))
+        for k in range(1, steps):
+            out.append(a + k * (b - a) / steps)
+    out.append(float(lines[-1]))
+    if dims_limit is not None:
+        if out[0] - med > 0.04 * dims_limit:
+            out.insert(0, out[0] - med)
+        if out[-1] + med < dims_limit - 0.04 * dims_limit:
+            out.append(out[-1] + med)
+    return out
+
+
+def _cells_from_lines(xs, ys, min_side, dims=None):
     """把同轴的格线位置配对成格子：相邻间距接近中位数（±40%）才算一对，
-    行内格宽和格高再互相卡一次方正度。返回工作坐标系的四角点列表。"""
+    行内格宽和格高再互相卡一次方正度。返回工作坐标系的四角点列表。
+
+    dims=(w, h) 时先局部补齐漏检的线（页面有弧度时不能整页拉等差）。"""
+    if dims:
+        xs = _fill_gaps(xs, dims[0])
+        ys = _fill_gaps(ys, dims[1])
+
     def _pairs(lines):
         if len(lines) < 2:
             return []
@@ -521,7 +551,8 @@ def _find_cells_hough(bgr):
         if len(xs) < 2 or len(ys) < 2:
             return []
         min_side = 0.04 * min(gray.shape[:2])
-        cells = _cells_from_lines(xs, ys, min_side)
+        gh, gw = gray.shape[:2]
+        cells = _cells_from_lines(xs, ys, min_side, dims=(gw, gh))
         if scale < 1.0:
             cells = [c / scale for c in cells]
         return cells
@@ -630,6 +661,22 @@ def warp_to_cell(bgr, quad, size=GRID_SIZE):
                    np.float32)
     mat = cv2.getPerspectiveTransform(np.asarray(quad, np.float32), dst)
     return cv2.warpPerspective(bgr, mat, (size, size))
+
+
+def cell_has_ink(bgr, quad):
+    """廉价预筛：256px 缩样上估计格子里有没有手写墨迹。
+
+    整页练习纸里大量空格（空行/词间空列），逐格走完整流水线太浪费。
+    只看「比当地纸面暗两档」的像素（字迹），格线只暗一档不算；
+    四周 1/4 边缘区不看（格线残迹集中在这里）。
+    """
+    small = warp_to_cell(bgr, quad, size=256)
+    gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (11, 11))
+    local_bg = cv2.dilate(gray, kernel)
+    dark = (local_bg.astype(np.int16) - gray.astype(np.int16)) > 60
+    inner = dark[64:192, 64:192]
+    return float(inner.mean()) > 0.0018
 
 
 def extract_ink(warped):

@@ -32,7 +32,7 @@ except ImportError:                    # 直接以脚本方式跑本文件时
 
 _CJK_RE = re.compile("[一-鿿]")
 
-MAX_CELLS_SCORED = 24       # 一次最多打分的格子数（控制响应体积和耗时）
+MAX_CELLS_SCORED = 40       # 一次最多打分的格子数（控制响应体积和耗时）
 
 # ---- 各维度扣分力度（占格宽度的比例 / 分数），调手感只动这一段 ----
 CENTER_FREE = 0.06          # 字块中心偏移格子中心 6% 以内不扣分
@@ -230,8 +230,20 @@ def score_image_multi(*, image_bytes=None, image_path=None, target_char=None):
                            target_char=target_char)
 
     results = []
-    cells = cells[:MAX_CELLS_SCORED]   # 整页练习纸可能上百格，限制响应体积
+    empty = 0
+    # 先廉价预筛掉空格（空行/词间空列），只对写了字的格子打分；
+    # cell 序号保留在整页网格里的原始位置，前端对得上
+    queue = []
     for i, quad in enumerate(cells):
+        try:
+            if geometry.cell_has_ink(img, quad):
+                queue.append((i, quad))
+            else:
+                empty += 1
+        except Exception:
+            queue.append((i, quad))     # 预筛失败不放过，交给完整流程判断
+    queue = queue[:MAX_CELLS_SCORED]    # 整页练习纸可能上百格，限制响应体积
+    for i, quad in queue:
         item = {"cell": i + 1}
         try:
             # 直接用分割出的四角点透视归一，不再逐格重复找框
@@ -241,8 +253,12 @@ def score_image_multi(*, image_bytes=None, image_path=None, target_char=None):
         except ScoreError as exc:
             item["error"] = str(exc)
         results.append(item)
-    return {"count": len(results), "results": results,
-            "elapsed": round(time.time() - started, 3)}
+    out = {"count": len(results), "results": results,
+           "elapsed": round(time.time() - started, 3)}
+    if empty:
+        out["empty_cells"] = empty
+        out["total_cells"] = len(cells)
+    return out
 
 
 def score_image(*, image_bytes=None, image_path=None, target_char=None,
