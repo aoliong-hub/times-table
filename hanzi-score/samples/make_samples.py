@@ -103,6 +103,16 @@ SAMPLES = ["一", "十", "人", "木"]
 PINYIN = {"一": "yi", "十": "shi", "人": "ren", "木": "mu"}
 
 
+def render_sheet(n: int = 2, char: str = "木", *, bad: bool = False) -> Image.Image:
+    """n 个格子横排的一张练习纸（每格写同一个字），用来测多格分割和逐格打分。"""
+    gap = 40
+    img = Image.new("RGB", (SIZE * n + gap * (n + 1), SIZE + 80), BG)
+    for i in range(n):
+        base = render(char, bad=bad)
+        img.paste(base, (gap + i * (SIZE + gap), 40))
+    return img
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="生成田字格测试图")
     parser.add_argument("--out", default=os.path.dirname(os.path.abspath(__file__)),

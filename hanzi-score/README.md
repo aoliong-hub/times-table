@@ -72,6 +72,13 @@ FastAPI 页面 —— 所以前端的静态资源和接口全部用**相对路�
 | `file` | 是 | 田字格照片，≤8MB |
 | `target_char` | 否 | 这一格应该写的字。只取第一个汉字；不填则用本地 OCR 认出写的字 |
 
+多格支持：照片里拍到多个田字格时（`core/geometry.py` 的 `find_cells`
+按红格线的投影 + 对角线交叉特征分割格子），服务逐格打分，返回
+`{"count": N, "results": [{cell, char, total, …}, …]}`；单格/找不到格
+时保持单结果结构。只支持红线/淡红格线的田字格作业纸（绿线课本
+方格页等暂不支持，会报「没找到田字格」）。真实样例见
+`samples/single-han.PNG`、`samples/single-zi.PNG`、`samples/multi02.png`。
+
 返回：
 
 ```json

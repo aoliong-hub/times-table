@@ -135,6 +135,21 @@ def 好字得分比歪字高():
     assert bad["grid"]["size_ratio"] > 0.85 if bad.get("grid") else True
 
 
+def 多格图逐格打分():
+    sheet = make_samples.render_sheet(2, "木")
+    buf = io.BytesIO()
+    sheet.save(buf, format="PNG")
+    r = scorer.score_image_multi(image_bytes=buf.getvalue())
+    assert isinstance(r, dict) and r["count"] == 2 and len(r["results"]) == 2
+    for i, item in enumerate(r["results"]):
+        assert item["cell"] == i + 1
+        assert item["char"] == "木", "第 %d 格应认出木，实际 %s" % (i + 1, item["char"])
+        assert 0 <= item["total"] <= 100
+    # 单格图保持原有单结果结构
+    r1 = scorer.score_image_multi(image_bytes=_render_bytes("木"))
+    assert "results" not in r1 and r1["total"] > 0
+
+
 def 端到端结果结构完整():
     r = scorer.score_image(image_bytes=_render_bytes("木"), target_char="木")
     for key in ("char", "total", "level", "badge", "emoji", "need_rewrite",
@@ -200,6 +215,7 @@ if __name__ == "__main__":
         笔画正确缺笔要扣分,
         笔画正确全写到给满分,
         好字得分比歪字高,
+        多格图逐格打分,
         端到端结果结构完整,
         好字等级高歪字会触发重写,
         没填目标字用OCR认字,

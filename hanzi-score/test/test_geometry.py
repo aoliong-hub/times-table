@@ -217,6 +217,33 @@ def 叠加图分层能生成PNG():
     assert geometry.build_overlay_pngs(r["warped"], None, None) is not None
 
 
+def 多格纸能逐格分割():
+    sheet = make_samples.render_sheet(3, "木")
+    bgr = cv2.cvtColor(np.array(sheet), cv2.COLOR_RGB2BGR)
+    cells = geometry.find_cells(bgr)
+    assert len(cells) == 3, "3 格纸应分割出 3 格，实际 %d" % len(cells)
+    # 阅读顺序：行内从左到右
+    xs = [cv2.boundingRect(c)[0] for c in cells]
+    assert xs == sorted(xs), "格子应按从左到右排序: %s" % xs
+    # 角点应接近真实格框（render 内部有 MARGIN=24 留白，误差 < 6px）
+    margin = make_samples.MARGIN
+    gap = 40
+    for i, cell in enumerate(cells):
+        x0 = gap + i * (make_samples.SIZE + gap) + margin
+        expect = (x0, 40 + margin, make_samples.SIZE - 2 * margin,
+                  make_samples.SIZE - 2 * margin)
+        got = cv2.boundingRect(cell)
+        assert all(abs(g - e) < 6 for g, e in zip(got, expect)), \
+            "第 %d 格角点偏差大: %s vs %s" % (i + 1, got, expect)
+
+
+def 找格_单格与空图():
+    bgr = cv2.cvtColor(np.array(make_samples.render_sheet(1, "木")),
+                       cv2.COLOR_RGB2BGR)
+    assert len(geometry.find_cells(bgr)) == 1
+    assert geometry.find_cells(np.full((300, 300, 3), 255, np.uint8)) == []
+
+
 def 零网络断言():
     with open(os.path.join(os.path.dirname(_HERE), "core", "geometry.py"),
               encoding="utf-8") as fh:
@@ -244,6 +271,8 @@ if __name__ == "__main__":
     test("认字结果带置信度", 认字结果带置信度)
     test("summarize输出中文行", summarize输出中文行)
     test("叠加图分层能生成PNG", 叠加图分层能生成PNG)
+    test("多格纸能逐格分割", 多格纸能逐格分割)
+    test("找格_单格与空图", 找格_单格与空图)
     test("零网络断言", 零网络断言)
 
     print("\n通过 %d 项，失败 %d 项" % (_passed, len(_failed)))

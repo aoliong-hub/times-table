@@ -237,3 +237,25 @@ main { max-width: 540px; margin: 0 auto; }
 .meta { color: var(--ink-light); font-size: 12px; margin-top: 10px; }
 
 .actions { margin-top: 16px; }
+
+/* ===== 多格照片：每格一个分数按钮 ===== */
+.cell-list { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.cell-list button {
+  padding: 7px 14px;
+  border-radius: 10px;
+  border: 1.5px solid var(--line);
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 14px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.cell-list button.active {
+  border-color: var(--accent);
+  background: rgba(74, 144, 217, 0.08);
+  font-weight: bold;
+}
+.cell-list button.bad {
+  border-color: rgba(224, 90, 78, 0.5);
+  color: #b3402f;
+}

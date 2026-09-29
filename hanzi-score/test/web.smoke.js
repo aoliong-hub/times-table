@@ -346,6 +346,40 @@ it('没带几何结果时隐藏程序量了量区块', async () => {
   assert(hidden(doc.getElementById('geometry')), 'geometry 为 null 时应隐藏');
 });
 
+it('多格结果按格子列分数，点一个显示那个格的详情', async () => {
+  const base = fakeResult({});
+  const { win, doc } = boot({
+    scoreResult: {
+      count: 2,
+      results: [
+        Object.assign({}, base, { cell: 1, total: 80, char: '汉' }),
+        Object.assign({}, base, { cell: 2, total: 40, char: '字',
+                                  need_rewrite: true })
+      ]
+    }
+  });
+  await flush();
+  selectFile(win, doc);
+  doc.getElementById('score-btn').click();
+  await flush();
+
+  const list = doc.getElementById('cell-list');
+  assert(!hidden(list), '多格时应显示格子列表');
+  const rows = list.querySelectorAll('.cell-row');
+  assert(rows.length === 2, `应有 2 个格子按钮，实际 ${rows.length}`);
+  assert(/80 分/.test(rows[0].textContent) && /汉|优秀|写得不错/.test(rows[0].textContent),
+    '格子按钮应带分数和等级');
+  assert(/✏️/.test(rows[1].textContent), '需重写的格子应有标记');
+  assert(doc.getElementById('score-num').textContent === '80', '默认显示第 1 格');
+  // 点第 2 格切换详情
+  rows[1].dispatchEvent(new win.Event('click', { bubbles: true }));
+  assert(doc.getElementById('score-num').textContent === '40', '点第 2 格应切换详情');
+  assert(rows[1].classList.contains('active') && !rows[0].classList.contains('active'),
+    '高亮应跟随切换');
+  assert(doc.getElementById('result').classList.contains('need-rewrite'),
+    '切到需重写的格子后结果卡应有重写样式');
+});
+
 it('接口报错时把服务端的说明显示出来', async () => {  const { win, doc } = boot({ scoreStatus: 400 });
   await flush();
   selectFile(win, doc);

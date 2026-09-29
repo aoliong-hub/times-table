@@ -15,6 +15,9 @@ import re
 import sys
 import time
 
+import cv2
+import numpy as np
+
 _HERE = os.path.dirname(os.path.abspath(__file__))
 # core/ -> hanzi-score/ -> times-table/ -> code/，几何模块的同级目录
 _HANZI_ROOT = os.path.abspath(os.path.join(_HERE, ".."))
@@ -195,6 +198,50 @@ def _best_stroke_praise(metrics):
     if best and best.get("align_ratio", 0) >= 0.9:
         return "第 %d 笔写得最准，就照这个感觉写其他的！" % (best["index"] + 1)
     return rubric.DEFAULT_PRAISE
+
+
+def score_image_multi(*, image_bytes=None, image_path=None, target_char=None):
+    """一张照片可能拍了好几个田字格：先分割格子，再逐格走单格流水线。
+
+    找到 0 或 1 个格子时，保持 score_image 原有的单结果结构（向后兼容）；
+    找到多个格子时返回 {"count": N, "results": [...]}，每个 result 带
+    "cell" 序号；单个格子打分失败不拖累其它格子，以 {"error": ...} 占位。
+    """
+    started = time.time()
+    source = image_bytes if image_bytes is not None else image_path
+    if source is None:
+        raise ScoreError("没有拿到图片")
+
+    img = None
+    try:
+        if image_bytes is not None:
+            img = cv2.imdecode(np.frombuffer(image_bytes, np.uint8),
+                               cv2.IMREAD_COLOR)
+        else:
+            img = cv2.imread(image_path)
+    except Exception:
+        img = None
+    cells = geometry.find_cells(img) if img is not None else []
+
+    if len(cells) <= 1:
+        return score_image(image_bytes=image_bytes, image_path=image_path,
+                           target_char=target_char)
+
+    results = []
+    for i, quad in enumerate(cells):
+        item = {"cell": i + 1}
+        try:
+            crop = geometry.crop_quad(img, quad, margin=0.08)
+            ok, buf = cv2.imencode(".png", crop)
+            if not ok:
+                raise ScoreError("格子截图失败")
+            item.update(score_image(image_bytes=buf.tobytes(),
+                                    target_char=target_char))
+        except ScoreError as exc:
+            item["error"] = str(exc)
+        results.append(item)
+    return {"count": len(results), "results": results,
+            "elapsed": round(time.time() - started, 3)}
 
 
 def score_image(*, image_bytes=None, image_path=None, target_char=None):

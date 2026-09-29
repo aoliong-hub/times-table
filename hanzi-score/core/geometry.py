@@ -153,6 +153,214 @@ def _order_quad(pts):
                      pts[np.argmax(s)], pts[np.argmin(d)]], np.float32)
 
 
+def _run_profile(mask):
+    """mask 的每一列的最大连续 True 段长度（沿行方向累计，遇断归零）。
+
+    用连续段而不是像素计数：实线外框的连续段接近整段跨度，而虚线中线
+    的连续段只有一小截——两种线彻底分开。
+    """
+    h, w = mask.shape
+    mask = (mask > 0).astype(np.int32)   # 兼容 0/255、bool、float 输入
+    best = np.zeros(w, np.int32)
+    prev = np.zeros(w, np.int32)
+    for i in range(h):
+        prev = (prev + 1) * mask[i]
+        np.maximum(best, prev, out=best)
+    return best
+
+
+def _line_positions(profile, length):
+    """从 1D 红线投影里找线的位置：超阈值的索引聚簇取中心。
+
+    返回 [(中心位置, 覆盖的索引列表), ...]。阈值 0.4×峰值：实线外框
+    投影强；虚线中线连续段短，一般被排除，被遮挡裁切的边框也能留下。
+    是否真是格线由 _solid_lines 按线段数二次判别。
+    """
+    if len(profile) == 0 or profile.max() <= 0:
+        return []
+    idxs = np.where(profile > 0.4 * profile.max())[0]
+    if len(idxs) == 0:
+        return []
+    gap = max(3, length // 100)
+    groups, cur = [], [idxs[0]]
+    for i in idxs[1:]:
+        if i - cur[-1] <= gap:
+            cur.append(i)
+        else:
+            groups.append(cur)
+            cur = [i]
+    groups.append(cur)
+    return [(float(np.mean(g)), g) for g in groups]
+
+
+def _count_segments(flags):
+    """1D 布尔序列里 True 段的个数。"""
+    segs, prev = 0, False
+    for f in flags:
+        if f and not prev:
+            segs += 1
+        prev = bool(f)
+    return segs
+
+
+def _segment_lengths(flags):
+    """1D 布尔序列里每个 True 段的长度列表。"""
+    lengths, cur = [], 0
+    for f in flags:
+        if f:
+            cur += 1
+        elif cur:
+            lengths.append(cur)
+            cur = 0
+    if cur:
+        lengths.append(cur)
+    return lengths
+
+
+def _red_at(red, x, y, tol=3):
+    """(x,y) 附近 tol 像素内是否有红线。"""
+    h, w = red.shape
+    xi, yi = int(round(x)), int(round(y))
+    if xi < -tol or yi < -tol or xi >= w + tol or yi >= h + tol:
+        return False
+    y0, y1 = max(0, yi - tol), min(h, yi + tol + 1)
+    x0, x1 = max(0, xi - tol), min(w, xi + tol + 1)
+    return bool(red[y0:y1, x0:x1].any())
+
+
+def _has_diagonal(red, px, py, extent):
+    """点 (px,py) 处是否有对角线穿过（米字格中线的中点必被对角线穿过，
+    边框线的中点不会）。沿两条 45° 方向各采 6 个距离，任一方向命中
+    ≥2 档即算穿过（对角线未必严格 45°，且可能虚线化，容差随距离放宽）。"""
+    hits1 = hits2 = 0
+    for frac in (0.05, 0.08, 0.11, 0.14, 0.17, 0.20):
+        d = int(extent * frac)
+        if d < 5:
+            continue
+        tol = max(3, d // 5)
+        if _red_at(red, px - d, py - d, tol) and _red_at(red, px + d, py + d, tol):
+            hits1 += 1
+        if _red_at(red, px - d, py + d, tol) and _red_at(red, px + d, py - d, tol):
+            hits2 += 1
+    return hits1 >= 2 or hits2 >= 2
+
+
+def _segments_1d(flags):
+    """1D 布尔序列的 True 段 [(起点, 终点), ...]（闭区间）。"""
+    segs, start = [], None
+    for i, f in enumerate(flags):
+        if f and start is None:
+            start = i
+        elif not f and start is not None:
+            segs.append((start, i - 1))
+            start = None
+    if start is not None:
+        segs.append((start, len(flags) - 1))
+    return segs
+
+
+def _find_cells_lines(red, clusters, lo, hi, horizontal):
+    """从候选线里去掉「中线」：中点（或任一红线段的中点）被对角线
+    穿过的内部线是米字格中线；边框线的中点不会有对角线穿过。"""
+    keep = []
+    for center, idxs in clusters:
+        band = red[idxs, :].any(axis=0) if horizontal else red[:, idxs].any(axis=1)
+        on = band.nonzero()[0]
+        if len(on) == 0:
+            continue
+        extent = on[-1] - on[0] + 1
+        points = [(on[0] + on[-1]) / 2.0]
+        for a, b in _segments_1d(band):
+            if b - a >= 10:
+                points.append((a + b) / 2.0)
+        is_mid = False
+        for mid in points:
+            if horizontal:
+                if _has_diagonal(red, mid, center, extent):
+                    is_mid = True
+                    break
+            elif _has_diagonal(red, center, mid, extent):
+                is_mid = True
+                break
+        if not is_mid:
+            keep.append(center)
+    return keep
+
+
+def find_cells(bgr):
+    """从整张照片里找出所有田字格，按阅读顺序（先上后下、行内从左到右）排列。
+
+    用红线在 x/y 两个方向的最大连续段投影找格线位置——虚线中线投影
+    很短，被阈值排除；相邻格线的间距接近中位数的才算格子边界，这样
+    共享边框的并排格、多行格、整页格子都能切开。
+    返回四角点列表（每个 4×2 float32），找不到返回 []。
+    """
+    try:
+        red = (_red_mask(bgr) > 0)
+        if int(red.sum()) < 30:
+            return []
+        h_img, w_img = bgr.shape[:2]
+        min_side = 0.04 * min(w_img, h_img)   # 格子最小边，滤掉细碎噪声
+
+        xclusters = _line_positions(_run_profile(red), w_img)
+        yclusters = _line_positions(_run_profile(red.T), h_img)
+        # 去掉内部中线：中点被对角线穿过的候选线（用另一轴的外沿做跨度）
+        if xclusters and yclusters:
+            ys_all = [c for c, _ in yclusters]
+            xs_all = [c for c, _ in xclusters]
+            xs = _find_cells_lines(red, xclusters, min(ys_all), max(ys_all),
+                                   horizontal=False)
+            ys = _find_cells_lines(red, yclusters, min(xs), max(xs),
+                                   horizontal=True)
+        else:
+            xs, ys = [], []
+
+        def _pairs(lines):
+            # 相邻线间距接近中位数（±40%）的才当成一对格子边界
+            if len(lines) < 2:
+                return []
+            diffs = np.diff(lines)
+            med = float(np.median(diffs))
+            if med < min_side:
+                return []
+            return [(lines[i], lines[i + 1]) for i in range(len(lines) - 1)
+                    if 0.6 * med <= diffs[i] <= 1.6 * med]
+
+        xpairs = _pairs(xs)
+        ypairs = _pairs(ys)
+        if not xpairs or not ypairs:
+            return []
+
+        # 行内格宽和格高应该接近，两边各取中位数再互相卡一次
+        xw = float(np.median([b - a for a, b in xpairs]))
+        yh = float(np.median([b - a for a, b in ypairs]))
+        lo, hi = 0.6 * min(xw, yh), 1.6 * max(xw, yh)
+        xpairs = [p for p in xpairs if lo <= p[1] - p[0] <= hi]
+        ypairs = [p for p in ypairs if lo <= p[1] - p[0] <= hi]
+
+        cells = []
+        for y1, y2 in ypairs:
+            for x1, x2 in xpairs:
+                quad = np.array([[x1, y1], [x2, y1], [x2, y2], [x1, y2]],
+                                np.float32)
+                cells.append(_order_quad(quad))
+        if len(cells) > 30:       # 防御：投影出几百个"格子"说明照片不对劲
+            return []
+        return cells
+    except Exception:
+        return []
+
+
+def crop_quad(bgr, quad, margin=0.08):
+    """按角点外接框（四周外扩 margin）裁出格子子图，供逐格走单格流水线。"""
+    x, y, w, h = cv2.boundingRect(np.asarray(quad, np.float32))
+    mx, my = int(w * margin), int(h * margin)
+    x0, y0 = max(0, x - mx), max(0, y - my)
+    x1 = min(bgr.shape[1], x + w + mx)
+    y1 = min(bgr.shape[0], y + h + my)
+    return bgr[y0:y1, x0:x1]
+
+
 def find_cell(bgr):
     """检测田字格外框。返回 {"quad","method"}，不是田字格照片返回 None。
 

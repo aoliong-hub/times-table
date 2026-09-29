@@ -93,7 +93,7 @@ async def api_score(
         raise HTTPException(status_code=400, detail="图片打不开，换一张试试")
 
     try:
-        return scorer.score_image(image_bytes=data, target_char=target_char)
+        return scorer.score_image_multi(image_bytes=data, target_char=target_char)
     except scorer.ScoreError as exc:
         raise HTTPException(status_code=422, detail=exc.detail)
 

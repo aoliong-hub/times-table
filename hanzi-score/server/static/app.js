@@ -20,6 +20,7 @@
     scoreNum: document.getElementById('score-num'),
     levelBadge: document.getElementById('level-badge'),
     charLine: document.getElementById('char-line'),
+    cellList: document.getElementById('cell-list'),
     dims: document.getElementById('dims'),
     improveWrap: document.getElementById('improve-wrap'),
     improvements: document.getElementById('improvements'),
@@ -262,6 +263,44 @@
   /* ---------- 渲染结果 ---------- */
 
   function render(data) {
+    if (data.results && data.results.length) {
+      renderCellList(data.results);
+      return;
+    }
+    hide(el.cellList);
+    renderDetail(data);
+  }
+
+  /* 多格照片：顶部一格一个按钮，点谁下面显示谁的详情 */
+  function renderCellList(results) {
+    el.cellList.textContent = '';
+    results.forEach(function (r, i) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'cell-row' + (r.error ? ' bad' : '');
+      var text = '第 ' + (r.cell || i + 1) + ' 格';
+      if (r.error) {
+        text += '　' + r.error;
+      } else {
+        text += '　' + r.total + ' 分　' + (r.emoji || '') + (r.badge || r.level || '');
+        if (r.need_rewrite) text += '　✏️';
+      }
+      btn.textContent = text;
+      btn.addEventListener('click', function () {
+        Array.prototype.forEach.call(el.cellList.children, function (c) {
+          c.classList.remove('active');
+        });
+        btn.classList.add('active');
+        renderDetail(r);
+      });
+      el.cellList.appendChild(btn);
+    });
+    show(el.cellList);
+    el.cellList.children[0].classList.add('active');
+    renderDetail(results[0]);
+  }
+
+  function renderDetail(data) {
     el.scoreNum.textContent = data.total;
     // 分数圈颜色：>=80 绿，>=60 黄，其余红
     el.scoreRing.classList.toggle('mid', data.total >= 60 && data.total < 80);
