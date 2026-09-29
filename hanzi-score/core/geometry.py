@@ -674,37 +674,48 @@ def draw_rice_grid(size=GRID_SIZE, color=(205, 205, 235), thickness=4):
     return grid
 
 
-def build_overlay_png(warped, medians, ink=None):
-    """对比图：米字格底板 + 手写笔迹（黑）+ 标准笔画（红色中线，起点画圆点）。
+def _measure_stroke_width(ink):
+    """从手写墨迹估笔画宽（各连通域距离变换最大值×2 的中位数），量不出返回 None。"""
+    if ink is None or not cv2.countNonZero(ink):
+        return None
+    try:
+        dt = cv2.distanceTransform(ink, cv2.DIST_L2, 3)
+        _, labels, stats, _ = cv2.connectedComponentsWithStats(ink, 8)
+        widths = [float(dt[labels == i].max()) * 2
+                  for i in range(1, len(stats)) if stats[i, cv2.CC_STAT_AREA] > 0]
+        widths = [w for w in widths if w > 0]
+        return int(round(float(np.median(widths)))) if widths else None
+    except Exception:
+        return None
 
-    手写和标准都在同一个透视归一后的米字格里，差距直接可见；
-    ink 给了就把偏离标准较远的墨迹叠淡黄。返回 PNG bytes，失败返回 None。
+
+def build_overlay_png(warped, medians, ink=None):
+    """对比图（三层，画在同一个米字格里）：
+
+    底层 浅灰 = 标准字的笔画形状（宽度取手写实测笔画宽，粗细对齐好比较）
+    中层 黑色 = 手写笔迹
+    顶层 红色 = 标准笔画的中线（起点画圆点）
     """
     try:
         overlay = draw_rice_grid()
 
-        if ink is None or not cv2.countNonZero(ink):
-            # 拿不到笔迹 mask 就用提亮后的照片做底（至少能看）
-            photo = cv2.convertScaleAbs(warped, alpha=1.25, beta=30)
-            overlay = cv2.addWeighted(overlay, 0.35, photo, 0.65, 0)
-        else:
-            overlay[ink > 0] = (34, 34, 34)                 # 手写墨迹
+        # 底层：标准字形，浅灰。宽度跟手写实测对齐，消掉粗细差异的干扰
+        if medians:
+            w = _measure_stroke_width(ink) or DEFAULT_STROKE_W
+            w = int(max(STROKE_W_MIN, min(STROKE_W_MAX, w)))
+            gray_mask = render_standard_mask(medians, width=w)
+            overlay[gray_mask > 0] = (200, 200, 200)        # BGR 浅灰
 
-        if ink is not None and medians and cv2.countNonZero(ink):
-            std_mask = render_standard_mask(medians)
-            dt_std = cv2.distanceTransform(cv2.bitwise_not(std_mask), cv2.DIST_L2, 3)
-            ys, xs = np.nonzero(ink > 0)
-            if len(xs):
-                d = dt_std[ys, xs] / GRID_SIZE
-                far = d > EXTRA_DIST
-                if far.any():
-                    overlay[ys[far], xs[far]] = (120, 200, 255)   # 淡黄 (BGR)
+        # 中层：手写笔迹（黑）
+        if ink is not None and cv2.countNonZero(ink):
+            overlay[ink > 0] = (34, 34, 34)
 
+        # 顶层：标准笔画中线（红）
         if medians:
             for stroke in medians:
                 pts = np.array(stroke, np.int32).reshape(-1, 1, 2)
-                cv2.polylines(overlay, [pts], False, (0, 0, 255), 6, cv2.LINE_AA)
-                cv2.circle(overlay, tuple(pts[0, 0]), 10, (0, 0, 255), -1, cv2.LINE_AA)
+                cv2.polylines(overlay, [pts], False, (0, 0, 255), 5, cv2.LINE_AA)
+                cv2.circle(overlay, tuple(pts[0, 0]), 9, (0, 0, 255), -1, cv2.LINE_AA)
 
         ok, buf = cv2.imencode(".png", overlay)
         return buf.tobytes() if ok else None
