@@ -43,11 +43,11 @@
   function hide(node) { node.classList.add('hidden'); }
 
   /* ---------- 对比图图层控制 ---------- */
-  /* 红/黄/绿是三个独立开关（互不影响，默认全开）；「只看标准」是独立
-     开关，只管隐藏手写、显示灰色标准字形层，两者可自由组合 */
+  /* 全部/红/黄/绿是一组单选（一次只亮一个）；「只看标准」与这组互斥：
+     进入时其它按钮变灰（仍可点击退出），点其它按钮则退出只看标准 */
 
   var LAYER_NAMES = ['green', 'yellow', 'red'];
-  var colorOn = { green: true, yellow: true, red: true };
+  var currentFilter = 'all';
   var currentStd = false;
 
   function layerBtn(name) {
@@ -67,36 +67,28 @@
     }
   }
 
-  function layerBtn(name) {
-    return document.querySelector('#layer-btns [data-layer="' + name + '"]');
-  }
-
-  function applyColorLayer(name) {
-    ['layer', 'cl'].forEach(function (suffix) {
-      var img = document.getElementById('geometry-' + suffix + '-' + name);
-      // 显示条件只看：该档存在 + 开关打开（和只看标准互不干扰，
-      // 彩色层叠在灰色标准字上面，天然可组合）
-      if (img) img.style.display =
-        (colorOn[name] && img.dataset.on === '1') ? '' : 'none';
+  function applyLayers() {
+    LAYER_NAMES.forEach(function (n) {
+      ['layer', 'cl'].forEach(function (suffix) {
+        var img = document.getElementById('geometry-' + suffix + '-' + n);
+        if (img) img.style.display =
+          (!currentStd && (currentFilter === 'all' || currentFilter === n)
+           && img.dataset.on === '1') ? '' : 'none';
+      });
     });
-    var btn = layerBtn(name);
-    if (btn) {
-      btn.classList.toggle('active', colorOn[name] && !btn.disabled);
-    }
+    // 高亮：单选组里选中的那个；只看标准模式下其它按钮全部变灰
+    ['all'].concat(LAYER_NAMES).forEach(function (name) {
+      var btn = layerBtn(name);
+      if (!btn) return;
+      btn.classList.toggle('active', !currentStd && currentFilter === name);
+      btn.classList.toggle('dim', currentStd);
+    });
   }
 
   function setLayerFilter(name) {
-    if (name === 'all') {
-      LAYER_NAMES.forEach(function (n) { colorOn[n] = true; });
-    } else if (name) {
-      colorOn[name] = !colorOn[name];   // 独立开关：点谁切谁
-    }
-    LAYER_NAMES.forEach(applyColorLayer);
-    var allBtn = layerBtn('all');
-    if (allBtn) {
-      var allOn = LAYER_NAMES.every(function (n) { return colorOn[n]; });
-      allBtn.classList.toggle('active', allOn);
-    }
+    if (currentStd) setStandardOnly(false);   // 互斥：选颜色即退出只看标准
+    currentFilter = name;
+    applyLayers();
   }
 
   var btnBox = document.getElementById('layer-btns');
@@ -118,10 +110,10 @@
     if (el.geometryInk) {
       el.geometryInk.style.display = on ? 'none' : '';
     }
-    LAYER_NAMES.forEach(applyColorLayer);   // 重新套用各档显隐
     if (stdImg) {
       stdImg.style.display = (on && stdImg.dataset.on === '1') ? '' : 'none';
     }
+    applyLayers();
   }
 
   if (stdBtn) {
@@ -380,8 +372,7 @@
           if (btn) btn.disabled = !ov[name];
         });
         // 每次重打分复位：全部档位显示、退出只看标准
-        LAYER_NAMES.forEach(function (n) { colorOn[n] = true; });
-        setLayerFilter('all');
+        currentFilter = 'all';
         setStandardOnly(false);
         show(el.geometry);
       }

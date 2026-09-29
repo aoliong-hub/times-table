@@ -181,6 +181,7 @@ main { max-width: 540px; margin: 0 auto; }
 }
 .layer-btns button:hover { color: var(--ink); }
 .layer-btns button:disabled { opacity: 0.4; cursor: not-allowed; }
+.layer-btns button.dim { opacity: 0.4; }
 .layer-btns button.active {
   border-color: var(--accent);
   color: var(--accent);
