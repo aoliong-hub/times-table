@@ -50,10 +50,8 @@
       <p id="error" class="error hidden" role="alert"></p>
     </section>
 
-    <section id="result" class="card result-card hidden" aria-labelledby="result-title"
+    <section id="result" class="card result-card hidden" aria-label="批改结果"
              aria-live="polite">
-      <h2 id="result-title" class="card-title">批改结果</h2>
-
       <div class="score-head">
         <div id="score-ring" class="score-ring">
           <span id="score-num" class="score-num">0</span>
@@ -67,29 +65,33 @@
 
       <p id="praise" class="praise"></p>
 
-      <div id="dims" class="dims"></div>
-
-      <div id="geometry" class="geometry hidden">
-        <h3>程序量了量</h3>
-        <img id="geometry-overlay" class="geometry-overlay hidden"
-             alt="同一米字格里的标准笔画（按对齐程度绿/黄/红着色）与手写对比图">
-        <ul id="geometry-rows" class="geometry-rows"></ul>
-        <p class="field-hint">手写和标准画在同一个米字格里。标准笔画的底色按对齐程度分：
-        绿=写到位（≥90%）、黄=部分到位（60%~90%）、红=基本没写对（<60%）；黑色是手写，红线是标准笔画的中线。</p>
-      </div>
-
-      <div id="improve-wrap" class="improve hidden">
-        <h3>再改这几点</h3>
-        <ol id="improvements"></ol>
-      </div>
-
       <div id="rewrite" class="rewrite hidden">
         <h3>✏️ 这个字建议再写一遍</h3>
         <p id="rewrite-reason" class="rewrite-reason"></p>
         <p id="rewrite-advice" class="rewrite-advice"></p>
       </div>
 
-      <p id="meta" class="meta"></p>
+      <details id="detail-box" class="detail-box">
+        <summary>维度得分、对比图与改进点</summary>
+
+        <div id="dims" class="dims"></div>
+
+        <div id="geometry" class="geometry hidden">
+          <h3>程序量了量</h3>
+          <img id="geometry-overlay" class="geometry-overlay hidden"
+               alt="同一米字格里的标准笔画（按对齐程度绿/黄/红着色）与手写对比图">
+          <ul id="geometry-rows" class="geometry-rows"></ul>
+          <p class="field-hint">手写和标准画在同一个米字格里。标准笔画的底色按对齐程度分：
+          绿=写到位（≥90%）、黄=部分到位（60%~90%）、红=基本没写对（<60%）；黑色是手写，红线是标准笔画的中线。</p>
+        </div>
+
+        <div id="improve-wrap" class="improve hidden">
+          <h3>再改这几点</h3>
+          <ol id="improvements"></ol>
+        </div>
+
+        <p id="meta" class="meta"></p>
+      </details>
     </section>
   </main>
 

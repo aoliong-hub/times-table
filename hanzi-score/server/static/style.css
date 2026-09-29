@@ -198,6 +198,43 @@ main, .page-head { position: relative; z-index: 1; max-width: 720px; margin: 0 a
   line-height: 1.7;
 }
 
+/* ===== 详情折叠：默认只露一行摘要，点开才显示维度/对比图/改进点 ===== */
+.detail-box {
+  margin-top: 18px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  padding-top: 10px;
+}
+.detail-box summary {
+  cursor: pointer;
+  color: var(--text-light);
+  font-size: 14px;
+  user-select: none;
+  padding: 6px 0;
+  list-style-position: inside;
+}
+.detail-box summary:hover { color: var(--text-white); }
+.detail-box[open] summary { margin-bottom: 14px; color: var(--text-white); }
+
+/* ===== 重写提示（低分时最显眼的位置） ===== */
+.rewrite {
+  margin: 18px 0;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: rgba(255, 107, 107, 0.12);
+  border-left: 4px solid var(--warn-red);
+}
+.rewrite h3 { font-size: 16px; color: var(--warn-red); margin-bottom: 8px; }
+.rewrite-reason { font-size: 15px; margin-bottom: 6px; }
+.rewrite-advice { font-size: 14px; color: var(--text-light); line-height: 1.7; }
+
+/* ===== 改进点 ===== */
+.improve { margin: 16px 0; }
+.improve h3 { font-size: 15px; color: var(--energy-gold); margin-bottom: 8px; }
+.improve ol { padding-left: 22px; }
+.improve li { color: var(--text-light); font-size: 14px; line-height: 1.9; }
+
+.meta { color: var(--text-light); font-size: 12px; margin-top: 14px; }
+
 /* ===== 本地几何比对 ===== */
 .geometry {
   margin: 18px 0;
