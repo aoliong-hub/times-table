@@ -83,6 +83,17 @@
     });
   }
 
+  /* 「只看标准」：隐藏手写层，看标准字的样子（与颜色筛选可叠加） */
+  var standardOnly = false;
+  var stdBtn = document.getElementById('btn-standard');
+  if (stdBtn) {
+    stdBtn.addEventListener('click', function () {
+      standardOnly = !standardOnly;
+      stdBtn.classList.toggle('active', standardOnly);
+      if (el.geometryInk) el.geometryInk.style.display = standardOnly ? 'none' : '';
+    });
+  }
+
   function showError(msg) {
     el.error.textContent = msg;
     show(el.error);
@@ -331,6 +342,9 @@
           setLayerImg(name, 'cl', ov[name + '_cl']);
         });
         setLayerFilter('all');
+        standardOnly = false;
+        if (stdBtn) stdBtn.classList.remove('active');
+        el.geometryInk.style.display = '';
         show(el.geometry);
       }
     } else {

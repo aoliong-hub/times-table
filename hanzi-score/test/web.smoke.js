@@ -306,6 +306,13 @@ it('带几何结果时显示照片与标准并排对比和分层叠加图', asyn
     .dispatchEvent(new win.Event('click', { bubbles: true }));
   assert(doc.getElementById('geometry-layer-green').style.display === '', '点全部后绿层应恢复');
   assert(doc.getElementById('geometry-cl-green').style.display === '', '点全部后绿档中线应恢复');
+  // 只看标准：隐藏手写层，再点恢复
+  const stdBtn = doc.getElementById('btn-standard');
+  stdBtn.dispatchEvent(new win.Event('click', { bubbles: true }));
+  assert(doc.getElementById('geometry-ink').style.display === 'none', '只看标准应隐藏手写层');
+  assert(stdBtn.classList.contains('active'), '只看标准按钮应高亮');
+  stdBtn.dispatchEvent(new win.Event('click', { bubbles: true }));
+  assert(doc.getElementById('geometry-ink').style.display === '', '再点应恢复手写层');
 });
 
 it('没带几何结果时隐藏程序量了量区块', async () => {
