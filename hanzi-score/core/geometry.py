@@ -51,9 +51,12 @@ RED_KILL_FALLBACK = 0.2   # 剔红线后墨迹不足纯二值化的 20% → 认�
 
 _CJK_RE = re.compile("[一-鿿]")
 
-# hanzi-writer-data 的 medians 实测是 **y 轴向上**（README 写的「y 向下」与数据不符，
-# 直接渲染是倒字）。加载时统一翻成 y 向下，跟照片归一化后的坐标系一致。
+# hanzi-writer-data 实测是 **y 轴向上**，且基线不在画布底：数据 y ∈ [-124, 900]
+# （基线 0、字高 900、下伸部 -124）。hanzi-writer 内部用 translate(0,900) scale(1,-1)
+# 渲染，即 display_y = 900 - y。照搬 1024-y 会把整个字向下压约 12% 格宽
+# （顶格的字如「汉」明显偏下）。加载时统一按 EM_BASELINE 翻成 y 向下。
 DATA_Y_UP = True
+EM_BASELINE = 900
 
 # 懒加载缓存
 _index_cache = None       # {char: 笔画数}
@@ -92,7 +95,8 @@ def load_standard(char):
             result = None
         else:
             if DATA_Y_UP:
-                medians = [[[x, GRID_SIZE - y] for x, y in stroke] for stroke in medians]
+                medians = [[[x, EM_BASELINE - y] for x, y in stroke]
+                           for stroke in medians]
             result = {
                 "strokes": data.get("strokes") or [],
                 "medians": medians,
@@ -724,7 +728,7 @@ def _polys_scaled(polys, size):
     out = []
     for poly in polys:
         p = poly.astype(np.float64).copy()
-        p[:, 1] = GRID_SIZE - p[:, 1]        # 数据 y 向上 → 翻成 y 向下
+        p[:, 1] = EM_BASELINE - p[:, 1]      # 数据 y 向上、基线 900 → 翻成 y 向下
         out.append((p * scale).astype(np.int32))
     return out
 
