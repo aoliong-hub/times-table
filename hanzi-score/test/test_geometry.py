@@ -189,26 +189,25 @@ def summarize输出中文行():
     assert any("认字" in x for x in (r2["lines"] or [])), "无目标字应报认字行"
 
 
-def 叠加图能生成PNG():
+def 叠加图分层能生成PNG():
     r = geometry.extract(_render_bytes("木"), "木")
     std = geometry.load_standard("木")
-    # 给每笔明确的对齐率：应该画出绿底和红底两种笔画
-    png = geometry.build_overlay_png(r["warped"], std, r["ink"],
-                                     stroke_scores=[1.0, 0.0, 1.0, 1.0])
-    assert png and png[:4] == b"\x89PNG", "叠加图应是 PNG"
-    assert len(png) > 1000, "PNG 太小 %d" % len(png)
-    img = cv2.imdecode(np.frombuffer(png, np.uint8), cv2.IMREAD_COLOR)
-    green = int(np.count_nonzero(np.all(img == (170, 230, 170), axis=-1)))
-    red = int(np.count_nonzero(np.all(img == (140, 140, 255), axis=-1)))
-    assert green > 500, "对齐率 1.0 的笔应有绿底，实际绿像素 %d" % green
-    assert red > 500, "对齐率 0 的笔应有红底，实际红像素 %d" % red
-    # 不给对齐率 → 全部中性浅灰
-    png2 = geometry.build_overlay_png(r["warped"], std, None)
-    img2 = cv2.imdecode(np.frombuffer(png2, np.uint8), cv2.IMREAD_COLOR)
-    gray = int(np.count_nonzero(np.all(img2 == (200, 200, 200), axis=-1)))
-    assert gray > 1000, "没给对齐率时底色应为浅灰，实际 %d" % gray
+    # 给每笔明确的对齐率：green 层和 red 层都该有内容
+    pngs = geometry.build_overlay_pngs(r["warped"], std, r["ink"],
+                                       stroke_scores=[1.0, 0.0, 1.0, 1.0])
+    assert pngs and set(pngs) == {"grid", "green", "yellow", "red", "ink"}, \
+        "分层不对: %s" % sorted(pngs)
+    for name in ("grid", "green", "red", "ink"):
+        assert pngs[name] and pngs[name][:4] == b"\x89PNG", "%s 层应是 PNG" % name
+    assert pngs["yellow"] is None, "没有黄色档的笔时该给 None"
+    # 绿层里有绿色像素（带 alpha），红层里有红色像素
+    green = cv2.imdecode(np.frombuffer(pngs["green"], np.uint8), cv2.IMREAD_UNCHANGED)
+    red = cv2.imdecode(np.frombuffer(pngs["red"], np.uint8), cv2.IMREAD_UNCHANGED)
+    assert green.shape[2] == 4, "颜色层应是带透明通道的 RGBA"
+    assert int(np.count_nonzero((green[..., 2] == 170) & (green[..., 3] == 255))) > 500
+    assert int(np.count_nonzero((red[..., 2] == 255) & (red[..., 0] == 140) & (red[..., 3] == 255))) > 500
     # 没有标准字时也不炸
-    assert geometry.build_overlay_png(r["warped"], None, None) is not None
+    assert geometry.build_overlay_pngs(r["warped"], None, None) is not None
 
 
 def 零网络断言():
@@ -237,7 +236,7 @@ if __name__ == "__main__":
     test("本地认字认对四个合成字", 本地认字认对四个合成字)
     test("认字结果带置信度", 认字结果带置信度)
     test("summarize输出中文行", summarize输出中文行)
-    test("叠加图能生成PNG", 叠加图能生成PNG)
+    test("叠加图分层能生成PNG", 叠加图分层能生成PNG)
     test("零网络断言", 零网络断言)
 
     print("\n通过 %d 项，失败 %d 项" % (_passed, len(_failed)))

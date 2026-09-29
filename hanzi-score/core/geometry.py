@@ -756,52 +756,80 @@ def _measure_stroke_width(ink):
         return None
 
 
-def _stroke_base_color(align):
-    """按单笔对齐率给标准字形底色（BGR）：≥90% 绿、60%~90% 黄、<60% 红。"""
+def _stroke_color_name(align):
+    """按单笔对齐率给档位名：≥90% 绿、60%~90% 黄、<60% 红，量不出 None（中性浅灰）。"""
     if align is None:
-        return (200, 200, 200)                     # 没量出来，中性浅灰
+        return None
     if align >= STROKE_ALIGN_GOOD:
-        return (170, 230, 170)                     # 绿：写到位了
+        return "green"
     if align >= STROKE_ALIGN_PART:
-        return (150, 230, 255)                     # 黄：部分到位
-    return (140, 140, 255)                         # 红：基本没写对，要重写
+        return "yellow"
+    return "red"
 
 
-def build_overlay_png(warped, std, ink=None, stroke_scores=None):
-    """对比图，画在同一个米字格里：
+_STROKE_LAYER_BGR = {
+    "green": (170, 230, 170),
+    "yellow": (150, 230, 255),
+    "red": (140, 140, 255),
+    "none": (200, 200, 200),
+}
 
-    底层 = 标准字的笔画形状（SVG 轮廓填充，和 preview.html 同款书法字形），
-           按每笔对齐率着色：绿 ≥90%、黄 60%~90%、红 <60%，没数据的笔浅灰
-    中层 黑色 = 手写笔迹
-    顶层 红色 = 标准笔画的中线（起点画圆点）
+
+def _encode_rgba(rgba):
+    ok, buf = cv2.imencode(".png", rgba)
+    return buf.tobytes() if ok else None
+
+
+def build_overlay_pngs(warped, std, ink=None, stroke_scores=None):
+    """对比图拆成多层 PNG（全部 1024×1024，可叠放），前端用 CSS 叠加并按色筛选。
+
+    返回 dict：
+      grid   米字格底板 + 没量出对齐率的笔画（浅灰），不透明
+      green/yellow/red  对齐档位对应的笔画填充（透明底 RGBA，无则 None）
+      ink    黑色手写笔迹 + 红色标准中线（透明底 RGBA，叠在最上层）
     """
     try:
-        overlay = draw_rice_grid()
         medians = (std or {}).get("medians") or []
         strokes = (std or {}).get("strokes") or []
 
-        # 底层：逐笔填充 + 按对齐率着色
+        grid = draw_rice_grid()
+        ink_layer = np.zeros((GRID_SIZE, GRID_SIZE, 4), np.uint8)
+
+        # 各档位笔画分别画到自己的透明层
+        layers = {"green": None, "yellow": None, "red": None}
         per_stroke_polys = [sample_svg_strokes([s]) for s in strokes]
         for idx, polys in enumerate(per_stroke_polys):
             align = stroke_scores[idx] if stroke_scores and idx < len(stroke_scores) \
                 else None
-            color = _stroke_base_color(align)
+            name = _stroke_color_name(align)
+            if name is None:
+                for poly in _polys_scaled(polys, GRID_SIZE):
+                    cv2.fillPoly(grid, [poly], _STROKE_LAYER_BGR["none"])
+                continue
+            layer = layers[name]
+            if layer is None:
+                layer = np.zeros((GRID_SIZE, GRID_SIZE, 4), np.uint8)
+            bgr = _STROKE_LAYER_BGR[name]
             for poly in _polys_scaled(polys, GRID_SIZE):
-                cv2.fillPoly(overlay, [poly], color)
+                cv2.fillPoly(layer, [poly], (*bgr, 255))
+            layers[name] = layer
 
-        # 中层：手写笔迹（黑）
+        # 手写笔迹（黑）
         if ink is not None and cv2.countNonZero(ink):
-            overlay[ink > 0] = (34, 34, 34)
+            ink_layer[ink > 0] = (34, 34, 34, 255)
 
-        # 顶层：标准笔画中线（红）
+        # 标准笔画中线（红，带起点圆点）
         if medians:
             for stroke in medians:
                 pts = np.array(stroke, np.int32).reshape(-1, 1, 2)
-                cv2.polylines(overlay, [pts], False, (0, 0, 255), 5, cv2.LINE_AA)
-                cv2.circle(overlay, tuple(pts[0, 0]), 9, (0, 0, 255), -1, cv2.LINE_AA)
+                cv2.polylines(ink_layer, [pts], False, (0, 0, 255, 255), 5, cv2.LINE_AA)
+                cv2.circle(ink_layer, tuple(pts[0, 0]), 9, (0, 0, 255, 255), -1, cv2.LINE_AA)
 
-        ok, buf = cv2.imencode(".png", overlay)
-        return buf.tobytes() if ok else None
+        out = {"grid": _encode_rgba(grid)}
+        for name, layer in layers.items():
+            out[name] = _encode_rgba(layer) if layer is not None else None
+        out["ink"] = _encode_rgba(ink_layer)
+        return out
     except Exception:
         return None
 

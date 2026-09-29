@@ -267,7 +267,7 @@ it('没填目标字则不提交该字段', async () => {
   assert(!calls.score[0].body.has('target_char'), '空目标字不该提交');
 });
 
-it('带几何结果时显示程序量了量区块和叠加图', async () => {
+it('带几何结果时显示照片与标准并排对比和分层叠加图', async () => {
   const { win, doc } = boot({
     scoreResult: fakeResult({
       geometry: {
@@ -275,11 +275,17 @@ it('带几何结果时显示程序量了量区块和叠加图', async () => {
         lines: ['占格：字的中心偏右 5%', '贴合：平均每笔偏离标准位置约 2% 格宽'],
         recognized: null, metrics: {}
       },
-      geometry_overlay: 'data:image/png;base64,AAA'
+      geometry_overlay: {
+        grid: 'data:image/png;base64,G',
+        green: 'data:image/png;base64,Gr',
+        yellow: null,
+        red: 'data:image/png;base64,R',
+        ink: 'data:image/png;base64,I'
+      }
     })
   });
   await flush();
-  selectFile(win, doc);
+  selectFile(win, doc, { name: '木.png' });
   doc.getElementById('score-btn').click();
   await flush();
 
@@ -288,9 +294,23 @@ it('带几何结果时显示程序量了量区块和叠加图', async () => {
   const rows = doc.querySelectorAll('#geometry-rows li');
   assert(rows.length === 2, `几何行应有 2 条，实际 ${rows.length}`);
   assert(/偏右 5%/.test(rows[0].textContent), '几何行内容不对');
-  assert(!hidden(doc.getElementById('geometry-overlay')), '有叠加图应显示');
-  assert(doc.getElementById('geometry-overlay').src === 'data:image/png;base64,AAA',
-    '叠加图地址没设上');
+  // 并排：左边原图（取自预览 objectURL），右边分层叠加
+  assert(doc.getElementById('geometry-original').src.length > 0, '并排的原图没设上');
+  assert(doc.getElementById('geometry-grid').src === 'data:image/png;base64,G', '米字格层没设上');
+  assert(doc.getElementById('geometry-ink').src === 'data:image/png;base64,I', '手写层没设上');
+  assert(doc.getElementById('geometry-layer-green').src === 'data:image/png;base64,Gr', '绿层没设上');
+  assert(doc.getElementById('geometry-layer-yellow').style.display === 'none',
+    '没有黄色层时应隐藏');
+  // 筛选按钮：点红 → 只显示红层
+  const redBtn = doc.querySelector('#layer-btns [data-layer="red"]');
+  redBtn.dispatchEvent(new win.Event('click', { bubbles: true }));
+  assert(doc.getElementById('geometry-layer-green').style.display === 'none', '点红后绿层应隐藏');
+  assert(doc.getElementById('geometry-layer-red').style.display === '', '点红后红层应显示');
+  assert(redBtn.classList.contains('active'), '点红后按钮应高亮');
+  // 全部
+  doc.querySelector('#layer-btns [data-layer="all"]')
+    .dispatchEvent(new win.Event('click', { bubbles: true }));
+  assert(doc.getElementById('geometry-layer-green').style.display === '', '点全部后绿层应恢复');
 });
 
 it('没带几何结果时隐藏程序量了量区块', async () => {

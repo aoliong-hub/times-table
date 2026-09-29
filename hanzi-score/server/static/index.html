@@ -78,11 +78,31 @@
 
         <div id="geometry" class="geometry hidden">
           <h3>程序量了量</h3>
-          <img id="geometry-overlay" class="geometry-overlay hidden"
-               alt="同一米字格里的标准笔画（按对齐程度绿/黄/红着色）与手写对比图">
+          <div class="compare-row">
+            <figure class="compare-cell">
+              <img id="geometry-original" class="compare-img" alt="上传的照片">
+              <figcaption>你的照片</figcaption>
+            </figure>
+            <figure class="compare-cell">
+              <div id="overlay-stack" class="overlay-stack">
+                <img id="geometry-grid" class="compare-img" alt="标准对比（米字格）">
+                <img id="geometry-layer-green" class="compare-img layer" alt="">
+                <img id="geometry-layer-yellow" class="compare-img layer" alt="">
+                <img id="geometry-layer-red" class="compare-img layer" alt="">
+                <img id="geometry-ink" class="compare-img layer" alt="标准对比与手写叠加">
+              </div>
+              <figcaption>标准对比</figcaption>
+            </figure>
+          </div>
+          <div id="layer-btns" class="layer-btns" role="group" aria-label="只看某一档笔画">
+            <button type="button" data-layer="all" class="active">全部</button>
+            <button type="button" data-layer="red">🔴 没写对</button>
+            <button type="button" data-layer="yellow">🟡 部分到位</button>
+            <button type="button" data-layer="green">🟢 写到位</button>
+          </div>
           <ul id="geometry-rows" class="geometry-rows"></ul>
-          <p class="field-hint">手写和标准画在同一个米字格里。标准笔画的底色按对齐程度分：
-          绿=写到位（≥90%）、黄=部分到位（60%~90%）、红=基本没写对（<60%）；黑色是手写，红线是标准笔画的中线。</p>
+          <p class="field-hint">标准笔画底色按对齐程度分：绿=写到位（≥90%）、
+          黄=部分到位（60%~90%）、红=基本没写对（小于60%）；黑色是手写，红线是标准笔画的中线。</p>
         </div>
 
         <div id="improve-wrap" class="improve hidden">

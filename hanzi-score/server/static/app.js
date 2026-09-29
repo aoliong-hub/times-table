@@ -27,7 +27,9 @@
     rewriteReason: document.getElementById('rewrite-reason'),
     rewriteAdvice: document.getElementById('rewrite-advice'),
     geometry: document.getElementById('geometry'),
-    geometryOverlay: document.getElementById('geometry-overlay'),
+    geometryOriginal: document.getElementById('geometry-original'),
+    geometryGrid: document.getElementById('geometry-grid'),
+    geometryInk: document.getElementById('geometry-ink'),
     geometryRows: document.getElementById('geometry-rows'),
     meta: document.getElementById('meta')
   };
@@ -39,6 +41,30 @@
 
   function show(node) { node.classList.remove('hidden'); }
   function hide(node) { node.classList.add('hidden'); }
+
+  /* ---------- 对比图按色筛选：只看某一档的笔画 ---------- */
+
+  var LAYER_NAMES = ['green', 'yellow', 'red'];
+
+  function setLayerFilter(name) {
+    LAYER_NAMES.forEach(function (n) {
+      var img = document.getElementById('geometry-layer-' + n);
+      if (!img || img.dataset.on !== '1') return;
+      img.style.display = (name === 'all' || name === n) ? '' : 'none';
+    });
+    var btns = document.querySelectorAll('#layer-btns button');
+    for (var i = 0; i < btns.length; i++) {
+      btns[i].classList.toggle('active', btns[i].getAttribute('data-layer') === name);
+    }
+  }
+
+  var btnBox = document.getElementById('layer-btns');
+  if (btnBox) {
+    btnBox.addEventListener('click', function (e) {
+      var btn = e.target.closest('button');
+      if (btn) setLayerFilter(btn.getAttribute('data-layer'));
+    });
+  }
 
   function showError(msg) {
     el.error.textContent = msg;
@@ -260,22 +286,35 @@
       hide(el.rewrite);
     }
 
-    // 本地几何比对（后端已生成中文行，前端只负责展示）
+    // 本地几何比对：左 = 上传照片，右 = 多层叠加的米字格对比（可按色筛选）
     el.geometryRows.textContent = '';
-    el.geometryOverlay.removeAttribute('src');
-    hide(el.geometryOverlay);
     var geo = data.geometry;
+    var ov = data.geometry_overlay;
     if (geo && geo.ok && (geo.lines || []).length) {
       geo.lines.forEach(function (text) {
         var li = document.createElement('li');
         li.textContent = text;
         el.geometryRows.appendChild(li);
       });
-      if (data.geometry_overlay) {
-        el.geometryOverlay.src = data.geometry_overlay;
-        show(el.geometryOverlay);
+      if (ov) {
+        // 底图 = 米字格；ink = 手写 + 标准中线，永远显示
+        el.geometryOriginal.src = el.preview.src || '';
+        el.geometryGrid.src = ov.grid || '';
+        el.geometryInk.src = ov.ink || '';
+        ['green', 'yellow', 'red'].forEach(function (name) {
+          var img = document.getElementById('geometry-layer-' + name);
+          if (ov[name]) {
+            img.src = ov[name];
+            img.dataset.on = '1';
+          } else {
+            img.removeAttribute('src');
+            delete img.dataset.on;
+            img.style.display = 'none';
+          }
+        });
+        setLayerFilter('all');
+        show(el.geometry);
       }
-      show(el.geometry);
     } else {
       hide(el.geometry);
     }

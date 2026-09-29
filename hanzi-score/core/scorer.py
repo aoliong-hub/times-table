@@ -275,16 +275,17 @@ def score_image(*, image_bytes=None, image_path=None, target_char=None):
         advice = "别灰心，擦掉再写一遍。" + (improvements[0] if improvements
                                              else "这次写在格子正中间，慢一点。")
 
-    # 叠加图（对比给家长孩子看）：画的是「应该照着写」的标准字
+    # 叠加图（对比给家长孩子看）：画的是「应该照着写」的标准字，按层拆分供前端筛选
     overlay_uri = None
     std = geometry.load_standard(ref_char) if ref_char else None
     if std:
         stroke_scores = [s.get("align_ratio") for s in (metrics.get("strokes") or [])]
-        png = geometry.build_overlay_png(
+        pngs = geometry.build_overlay_pngs(
             geo.get("warped"), std, geo.get("ink"), stroke_scores=stroke_scores)
-        if png:
-            overlay_uri = ("data:image/png;base64,"
-                           + base64.b64encode(png).decode("ascii"))
+        if pngs:
+            overlay_uri = {name: ("data:image/png;base64,"
+                                  + base64.b64encode(png).decode("ascii"))
+                           for name, png in pngs.items() if png}
 
     geometry_out = {
         "ok": True,

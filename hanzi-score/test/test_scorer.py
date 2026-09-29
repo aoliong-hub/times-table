@@ -144,7 +144,10 @@ def 端到端结果结构完整():
     assert r["char"] == "木" and r["char_match"] is True
     assert len(r["dimensions"]) == 4
     assert r["geometry"]["ok"] is True
-    assert r["geometry_overlay"] and r["geometry_overlay"].startswith("data:image/png")
+    ov = r["geometry_overlay"]
+    assert isinstance(ov, dict) and "grid" in ov and "ink" in ov, \
+        "叠加图应分层: %s" % sorted(ov or {})
+    assert all(v.startswith("data:image/png") for v in ov.values())
     assert r["elapsed"] >= 0
 
 
