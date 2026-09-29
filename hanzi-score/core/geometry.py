@@ -407,36 +407,8 @@ def _find_cells_once(bgr, th):
         else:
             xs, ys = [], []
 
-        def _pairs(lines):
-            # 相邻线间距接近中位数（±40%）的才当成一对格子边界
-            if len(lines) < 2:
-                return []
-            diffs = np.diff(lines)
-            med = float(np.median(diffs))
-            if med < min_side:
-                return []
-            return [(lines[i], lines[i + 1]) for i in range(len(lines) - 1)
-                    if 0.6 * med <= diffs[i] <= 1.6 * med]
-
-        xpairs = _pairs(xs)
-        ypairs = _pairs(ys)
-        if not xpairs or not ypairs:
-            return []
-
-        # 行内格宽和格高应该接近，两边各取中位数再互相卡一次
-        xw = float(np.median([b - a for a, b in xpairs]))
-        yh = float(np.median([b - a for a, b in ypairs]))
-        lo, hi = 0.6 * min(xw, yh), 1.6 * max(xw, yh)
-        xpairs = [p for p in xpairs if lo <= p[1] - p[0] <= hi]
-        ypairs = [p for p in ypairs if lo <= p[1] - p[0] <= hi]
-
-        cells = []
-        for y1, y2 in ypairs:
-            for x1, x2 in xpairs:
-                quad = np.array([[x1, y1], [x2, y1], [x2, y2], [x1, y2]],
-                                np.float32)
-                cells.append(_order_quad(quad))
-        if len(cells) > 30:       # 防御：投影出几百个"格子"说明照片不对劲
+        cells = _cells_from_lines(xs, ys, min_side)
+        if not cells:
             return []
         # 工作图坐标 → 缩放图坐标 → 原图坐标
         if M_inv is not None:
@@ -450,6 +422,113 @@ def _find_cells_once(bgr, th):
         return []
 
 
+def _cells_from_lines(xs, ys, min_side):
+    """把同轴的格线位置配对成格子：相邻间距接近中位数（±40%）才算一对，
+    行内格宽和格高再互相卡一次方正度。返回工作坐标系的四角点列表。"""
+    def _pairs(lines):
+        if len(lines) < 2:
+            return []
+        diffs = np.diff(lines)
+        med = float(np.median(diffs))
+        if med < min_side:
+            return []
+        return [(lines[i], lines[i + 1]) for i in range(len(lines) - 1)
+                if 0.6 * med <= diffs[i] <= 1.6 * med]
+
+    xpairs = _pairs(xs)
+    ypairs = _pairs(ys)
+    if not xpairs or not ypairs:
+        return []
+    xw = float(np.median([b - a for a, b in xpairs]))
+    yh = float(np.median([b - a for a, b in ypairs]))
+    lo, hi = 0.6 * min(xw, yh), 1.6 * max(xw, yh)
+    xpairs = [p for p in xpairs if lo <= p[1] - p[0] <= hi]
+    ypairs = [p for p in ypairs if lo <= p[1] - p[0] <= hi]
+    cells = []
+    for y1, y2 in ypairs:
+        for x1, x2 in xpairs:
+            quad = np.array([[x1, y1], [x2, y1], [x2, y2], [x1, y2]], np.float32)
+            cells.append(_order_quad(quad))
+    if len(cells) > 200:      # 防御：检出几百个"格子"说明照片不对劲
+        return []
+    return cells
+
+
+def _find_lines_hough(gray):
+    """Canny + HoughLinesP 直接找格线。纸面颗粒重、格线极淡的照片，
+    亮度阈值法会溺水（颗粒和线亮度重叠），而边缘图里颗粒根本成不了
+    长直线。返回实线边框的 (xs, ys) 位置；虚线中线按「沿线边缘段数
+    多而碎」剔除。"""
+    h, w = gray.shape[:2]
+    edges = cv2.Canny(cv2.GaussianBlur(gray, (3, 3), 0), 40, 120)
+    min_len = int(0.35 * min(h, w))
+    lines = cv2.HoughLinesP(edges, 1, np.pi / 180, threshold=max(30, min_len // 2),
+                            minLineLength=min_len, maxLineGap=15)
+    if lines is None:
+        return [], []
+    hs, vs = [], []
+    for x1, y1, x2, y2 in lines[:, 0]:
+        ang = float(np.degrees(np.arctan2(y2 - y1, x2 - x1)))
+        if abs(ang) < 4:
+            hs.append((y1 + y2) / 2.0)
+        elif abs(abs(ang) - 90) < 4:
+            vs.append((x1 + x2) / 2.0)
+    gap = max(6, min(h, w) // 50)
+
+    def _cluster(vals):
+        vals = sorted(vals)
+        out = []
+        for v in vals:
+            if out and v - out[-1][-1] <= gap:
+                out[-1].append(v)
+            else:
+                out.append([v])
+        return [float(np.mean(g)) for g in out]
+
+    def _solid(positions, horizontal):
+        # 沿候选线统计边缘像素段：实线边框段少且长（≤3 段），
+        # 虚线中线段多而碎，丢弃
+        keep = []
+        for pos in positions:
+            lo = max(0, int(pos) - 2)
+            if horizontal:
+                trace = edges[lo:int(pos) + 3, :].any(axis=0)
+            else:
+                trace = edges[:, lo:int(pos) + 3].any(axis=1)
+            on = trace.nonzero()[0]
+            if len(on) == 0:
+                continue
+            segs = np.split(on, np.nonzero(np.diff(on) > 4)[0] + 1)
+            if sum(1 for s in segs if len(s) >= 8) <= 3:
+                keep.append(pos)
+        return keep
+
+    return _solid(_cluster(vs), False), _solid(_cluster(hs), True)
+
+
+def _find_cells_hough(bgr):
+    """分割阶梯的兜底档：亮度阈值法全部失败时用边缘检测找线。"""
+    try:
+        h, w = bgr.shape[:2]
+        scale = min(1.0, 1000.0 / max(h, w))
+        if scale < 1.0:
+            small = cv2.resize(bgr, None, fx=scale, fy=scale,
+                               interpolation=cv2.INTER_AREA)
+        else:
+            small = bgr
+        gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
+        xs, ys = _find_lines_hough(gray)
+        if len(xs) < 2 or len(ys) < 2:
+            return []
+        min_side = 0.04 * min(gray.shape[:2])
+        cells = _cells_from_lines(xs, ys, min_side)
+        if scale < 1.0:
+            cells = [c / scale for c in cells]
+        return cells
+    except Exception:
+        return []
+
+
 def find_cells(bgr):
     """从整张照片里找出所有田字格，按阅读顺序（先上后下、行内从左到右）排列。
 
@@ -458,14 +537,16 @@ def find_cells(bgr):
     映射回原图坐标。相邻格线的间距接近中位数的才算格子边界，这样
     共享边框的并排格、多行格、整页格子都能切开。
     「非纸面」阈值走阶梯：干净照片用标准值，暗淡/低对比的照片逐级
-    放宽重试（阈值越低噪声越多，只在上一级失败时才降）。
+    放宽重试（阈值越低噪声越多，只在上一级失败时才降）。亮度阈值
+    全部失败时最后用 Canny+Hough 找线兜底（纸面颗粒重、格线极淡的
+    照片靠边缘检测绕开亮度重叠）。
     返回四角点列表（每个 4×2 float32），找不到返回 []。
     """
     for th in (18, 14, 10):
         cells = _find_cells_once(bgr, th)
         if cells:
             return cells
-    return []
+    return _find_cells_hough(bgr)
 
 
 def crop_quad(bgr, quad, margin=0.08):
@@ -574,9 +655,13 @@ def extract_ink(warped):
 
     # 局部对比度剔灰格线：灰线只比当地纸面暗一档（< DIFF_INK），
     # 手写墨迹暗得多。纸面亮度用 dilate（局部最大）估计——闭运算的
-    # 核若不比笔画宽，会陷进粗笔画内部把真墨迹误判成「浅」
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (151, 151))
-    local_bg = cv2.dilate(gray, kernel)
+    # 核若不比笔画宽，会陷进粗笔画内部把真墨迹误判成「浅」。
+    # 在 1/4 尺度上算再放大（等效核 151/4≈38），大核 dilate 太慢
+    small = cv2.resize(gray, (256, 256), interpolation=cv2.INTER_AREA)
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (39, 39))
+    local_bg = cv2.resize(cv2.dilate(small, kernel),
+                          (gray.shape[1], gray.shape[0]),
+                          interpolation=cv2.INTER_LINEAR)
     faint = ((local_bg.astype(np.int16) - gray.astype(np.int16)) < DIFF_INK)
     cleaned = cv2.bitwise_and(binary, (~faint).astype(np.uint8) * 255)
     if cv2.countNonZero(cleaned) >= RED_KILL_FALLBACK * cv2.countNonZero(binary):
@@ -651,7 +736,8 @@ def _points_mask(points, size=_RECOGNIZE_SIZE):
     return canvas
 
 
-_OCR_MIN_CONF = 0.5      # OCR 置信度低于它时，用模板匹配补几个形近候选
+_OCR_MIN_CONF = 0.5      # OCR 置信度低于它时，认字结果里补充模板匹配候选
+_OCR_ACCEPT = 0.35       # 置信度低于它才真正跑模板兜底（模板打全库较慢）
 _ocr_engine = None       # RapidOCR 懒加载单例
 
 
@@ -718,10 +804,14 @@ def recognize_char(ink_mask, warped=None, top_n=5):
                         seen.add(ch)
 
         if not results or results[0]["score"] < _OCR_MIN_CONF:
-            for cand in recognize_char_by_template(ink_mask, top_n=top_n):
-                if cand["char"] not in seen:
-                    results.append(cand)
-                    seen.add(cand["char"])
+            # OCR 结果太差才走模板兜底。但 OCR 置信度 ≥ _OCR_ACCEPT 时的
+            # 「直接采用」结果已经够用——模板打全库要 1 秒多，整页几十格
+            # 时会把响应拖到几十秒
+            if not results or results[0]["score"] < _OCR_ACCEPT:
+                for cand in recognize_char_by_template(ink_mask, top_n=top_n):
+                    if cand["char"] not in seen:
+                        results.append(cand)
+                        seen.add(cand["char"])
 
         return results[:top_n] or None
     except Exception:
@@ -751,19 +841,24 @@ def recognize_char_by_template(ink_mask, top_n=5):
                 else:
                     m = render_standard_mask(std["medians"], size=_RECOGNIZE_RENDER,
                                              width=max(2, _RECOGNIZE_RENDER // 24))
-                    _template_cache[char] = _norm_blob(m)
-            tpl = _template_cache[char]
-            if tpl is None or cv2.countNonZero(tpl) < 8:
+                    tpl = _norm_blob(m)
+                    if tpl is None:
+                        _template_cache[char] = None
+                    else:
+                        # 距离变换和膨胀只算一次存进缓存，多次认字时复用
+                        _template_cache[char] = (tpl, _dt_of(tpl),
+                                                 cv2.dilate(tpl, np.ones((3, 3), np.uint8)))
+            entry = _template_cache[char]
+            if entry is None or cv2.countNonZero(entry[0]) < 8:
                 continue
-            dt_std = _dt_of(tpl)
+            tpl, dt_std, tpl_d = entry
             std_pts = np.column_stack(np.nonzero(tpl > 0))[:, ::-1].astype(np.float32)
             # 对称 chamfer（平均每点离对方笔画的距离 / 64）
             d1 = float(dt_ink[std_pts[:, 1].astype(int), std_pts[:, 0].astype(int)].mean())
             d2 = float(dt_std[ink_pts[:, 1].astype(int), ink_pts[:, 0].astype(int)].mean())
             chamfer = 0.5 * (d1 + d2) / _RECOGNIZE_SIZE
             # 形状重合率：互相膨胀后算 IoU，字库里形状相近的字靠它分开
-            inter = cv2.countNonZero(cv2.bitwise_and(
-                ink_d, cv2.dilate(tpl, np.ones((3, 3), np.uint8))))
+            inter = cv2.countNonZero(cv2.bitwise_and(ink_d, tpl_d))
             union = cv2.countNonZero(cv2.bitwise_or(ink_d, tpl))
             iou = inter / union if union else 0.0
             sim = 1.0 - (0.5 * chamfer + 0.5 * (1 - iou))

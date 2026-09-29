@@ -32,6 +32,8 @@ except ImportError:                    # 直接以脚本方式跑本文件时
 
 _CJK_RE = re.compile("[一-鿿]")
 
+MAX_CELLS_SCORED = 24       # 一次最多打分的格子数（控制响应体积和耗时）
+
 # ---- 各维度扣分力度（占格宽度的比例 / 分数），调手感只动这一段 ----
 CENTER_FREE = 0.06          # 字块中心偏移格子中心 6% 以内不扣分
 CENTER_MAX_DEDUCT = 10      # 占格维度里偏移最多扣几分
@@ -228,6 +230,7 @@ def score_image_multi(*, image_bytes=None, image_path=None, target_char=None):
                            target_char=target_char)
 
     results = []
+    cells = cells[:MAX_CELLS_SCORED]   # 整页练习纸可能上百格，限制响应体积
     for i, quad in enumerate(cells):
         item = {"cell": i + 1}
         try:
