@@ -42,6 +42,8 @@ STROKE_W_MIN = 24         # 标准字渲染线宽的夹取范围（px @1024）
 STROKE_W_MAX = 56
 DEFAULT_STROKE_W = 36     # 拿不到实测笔画宽时的默认线宽
 INK_MIN_RATIO = 0.008     # 墨迹像素占比低于 0.8% → too_faint
+STROKE_ALIGN_GOOD = 0.9   # 单笔对齐率 ≥90% → 绿色（这一笔写到位了）
+STROKE_ALIGN_PART = 0.6   # 60%~90% → 黄色（部分到位）；<60% → 红色（基本没写对）
 NOISE_AREA = 0.00005 * GRID_SIZE * GRID_SIZE   # 小于它的连通域当噪点
 LINE_THIN = 12            # 归一化后细于它的长直线当格线（笔画一般 15px 以上）
 LINE_LONG = 0.85 * GRID_SIZE   # 长过它的细直线当格线
@@ -538,11 +540,15 @@ def compare(ink_mask, std_mask, std_medians, stroke_count):
             pts = np.clip(np.array(stroke, np.float32), 0, size - 1)
             d = dt_ink[pts[:, 1].astype(int), pts[:, 0].astype(int)] / size
             mean_d = float(d.mean()) if len(d) else 1.0
-            total_pts += len(d)
-            covered_pts += int((d < COVER_DIST).sum())
+            n = len(d)
+            total_pts += n
+            hit = int((d < COVER_DIST).sum())
+            covered_pts += hit
             strokes.append({
                 "index": idx,
                 "mean_off": round(mean_d, 4),
+                # 对齐率：这一笔中线点里落在手写墨迹附近的比例，喂给叠加图配色
+                "align_ratio": round(hit / max(1, n), 4),
                 "covered": bool(mean_d < COVER_DIST),
                 "missing": bool(mean_d > MISSING_DIST),
             })
@@ -752,10 +758,22 @@ def _measure_stroke_width(ink):
         return None
 
 
-def build_overlay_png(warped, std, ink=None):
-    """对比图（三层，画在同一个米字格里）：
+def _stroke_base_color(align):
+    """按单笔对齐率给标准字形底色（BGR）：≥90% 绿、60%~90% 黄、<60% 红。"""
+    if align is None:
+        return (200, 200, 200)                     # 没量出来，中性浅灰
+    if align >= STROKE_ALIGN_GOOD:
+        return (170, 230, 170)                     # 绿：写到位了
+    if align >= STROKE_ALIGN_PART:
+        return (150, 230, 255)                     # 黄：部分到位
+    return (140, 140, 255)                         # 红：基本没写对，要重写
 
-    底层 浅灰 = 标准字的笔画形状（SVG 轮廓填充，和 preview.html 同款书法字形）
+
+def build_overlay_png(warped, std, ink=None, stroke_scores=None):
+    """对比图，画在同一个米字格里：
+
+    底层 = 标准字的笔画形状（SVG 轮廓填充，和 preview.html 同款书法字形），
+           按每笔对齐率着色：绿 ≥90%、黄 60%~90%、红 <60%，没数据的笔浅灰
     中层 黑色 = 手写笔迹
     顶层 红色 = 标准笔画的中线（起点画圆点）
     """
@@ -764,10 +782,14 @@ def build_overlay_png(warped, std, ink=None):
         medians = (std or {}).get("medians") or []
         strokes = (std or {}).get("strokes") or []
 
-        # 底层：标准字形，浅灰（按轮廓填充，和 hanzi-writer 渲染一致）
-        if strokes:
-            gray_mask = render_standard_filled(strokes)
-            overlay[gray_mask > 0] = (200, 200, 200)        # BGR 浅灰
+        # 底层：逐笔填充 + 按对齐率着色
+        per_stroke_polys = [sample_svg_strokes([s]) for s in strokes]
+        for idx, polys in enumerate(per_stroke_polys):
+            align = stroke_scores[idx] if stroke_scores and idx < len(stroke_scores) \
+                else None
+            color = _stroke_base_color(align)
+            for poly in _polys_scaled(polys, GRID_SIZE):
+                cv2.fillPoly(overlay, [poly], color)
 
         # 中层：手写笔迹（黑）
         if ink is not None and cv2.countNonZero(ink):

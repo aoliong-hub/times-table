@@ -155,8 +155,8 @@ def geometry_prompt_text(geometry, target_char=None):
         out.append(guess + "，请你从照片里确认它到底写的是哪个字。")
     out.append(
         "另外附了第二张图：手写的字和标准写法画在同一个米字格里，"
-        "浅灰是标准笔画的形状，黑色是孩子写的，红色细线是标准笔画的中间线，"
-        "黑字离开红线和浅灰形状的地方就是偏差。"
+        "标准笔画按每笔的对齐程度着色：绿色是写到位了，黄色是部分到位，"
+        "红色是这一笔基本没写对；黑色是孩子写的，红线是标准笔画的中间线。"
         "这两样都是程序粗略量出来的，照片有反光、笔画断了笔的时候会量不准。"
         "请你结合两张图自己看：数据只当参考，评语要用你自己看图的话来说，"
         "不要照念数字，也不要跟孩子提「程序」「百分比」这些词。"
@@ -294,8 +294,11 @@ def score_image(*, image_bytes=None, image_path=None, target_char=None,
             }
             std = _geometry.load_standard(geo["char"]) if geo.get("char") else None
             if std:
+                metrics = geo.get("metrics") or {}
+                scores = [s.get("align_ratio")
+                          for s in (metrics.get("strokes") or [])]
                 png = _geometry.build_overlay_png(
-                    geo.get("warped"), std, geo.get("ink"))
+                    geo.get("warped"), std, geo.get("ink"), stroke_scores=scores)
                 if png:
                     overlay_uri = ("data:image/png;base64,"
                                    + base64.b64encode(png).decode("ascii"))
