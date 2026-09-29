@@ -243,27 +243,17 @@ it('需重写但模型没给建议时前端有兜底话术', async () => {
     '缺建议时不能留空白');
 });
 
-it('填了目标字会随表单一起提交', async () => {
+it('只提交图片，不带目标字字段', async () => {
   const { win, doc, calls } = boot();
   await flush();
-  doc.getElementById('target-char').value = '木';
   selectFile(win, doc);
   doc.getElementById('score-btn').click();
   await flush();
 
   assert(calls.score.length === 1, '应提交一次');
   const form = calls.score[0].body;
-  assert(form.get('target_char') === '木', '目标字没提交上去');
+  assert(!form.has('target_char'), '不该再提交目标字字段');
   assert(form.get('file'), '文件没提交上去');
-});
-
-it('没填目标字则不提交该字段', async () => {
-  const { win, doc, calls } = boot();
-  await flush();
-  selectFile(win, doc);
-  doc.getElementById('score-btn').click();
-  await flush();
-  assert(!calls.score[0].body.has('target_char'), '空目标字不该提交');
 });
 
 it('带几何结果时显示照片与标准并排对比和分层叠加图', async () => {

@@ -6,7 +6,6 @@
 
   var el = {
     stepUpload: document.getElementById('step-upload'),
-    targetChar: document.getElementById('target-char'),
     dropZone: document.getElementById('drop-zone'),
     fileInput: document.getElementById('file-input'),
     dropHint: document.getElementById('drop-hint'),
@@ -197,8 +196,6 @@
 
     var form = new FormData();
     form.append('file', currentFile);
-    var target = (el.targetChar.value || '').trim();
-    if (target) form.append('target_char', target);
 
     fetch('api/score', { method: 'POST', body: form })
       .then(function (resp) {
