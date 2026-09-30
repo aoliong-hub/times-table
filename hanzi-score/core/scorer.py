@@ -40,6 +40,85 @@ MAX_CELL_WORKERS = 8        # 逐格打分的并行进程数（管线是 CPU 密
 _CELL_POOL = None
 
 
+def _row_vote_rescore(targets, all_items, cells, source_spec, target_char, pool):
+    """行级多数投票：练字本每行通常是把同一个字重复写 N 遍。
+
+    行内 ≥3 格以较高置信度认出同一个字时，该行认错/报错的格子
+    （targets）大概率也是这个字——用行字作为 target_char 重打分
+    （几何比对从此对着正确的标准字），并把认字结果对齐行字。
+    投票看 all_items（含已流出的高置信格），重打分只动 targets。
+    每行写不同字的本子（词语练习）形不成多数，自动不触发。
+    """
+    import collections
+    if not all_items or not cells:
+        return
+    results = all_items
+    heights = sorted(float(q[:, 1].max() - q[:, 1].min()) for q in cells)
+    row_h = heights[len(heights) // 2] or 1.0
+    if row_h < 1:
+        return
+    top = min(float(q[:, 1].min()) for q in cells)
+    rows = collections.defaultdict(list)
+    for it in results:
+        i = it.get("cell", 0) - 1
+        if not (0 <= i < len(cells)):
+            continue
+        yc = float(cells[i][:, 1].mean())
+        rows[int((yc - top) / (0.7 * row_h))].append(it)
+
+    redo = []                       # (item, 行字)
+    for row in rows.values():
+        votes = collections.Counter()
+        confs = {}
+        for it in row:
+            ch = it.get("char")
+            if not ch:
+                continue
+            conf = float(it.get("ocr_conf") or 0)
+            if conf >= 0.35:      # 与 _OCR_ACCEPT 同档：管线已肯采用
+                votes[ch] += 1
+                confs[ch] = max(confs.get(ch, 0), conf)
+        if not votes:
+            continue
+        modal, cnt = votes.most_common(1)[0]
+        second = votes.most_common(2)[1][1] if len(votes) > 1 else 0
+        # ≥3 票直接定；2 票且是第二名的两倍也够（其余票都各不相同）
+        if cnt < 3 and not (cnt >= 2 and cnt >= 2 * second):
+            continue
+        for it in row:
+            conf = float(it.get("ocr_conf") or 0)
+            if it.get("error") or it.get("char") != modal or conf < 0.75:
+                redo.append((it, modal))
+    if not redo:
+        return
+
+    kind, data = source_spec
+    futures = {}
+    for it, modal in redo:
+        i = it.get("cell", 1) - 1
+        if not (0 <= i < len(cells)):
+            continue
+        if pool is not None:
+            futures[pool.submit(_score_cell_worker, source_spec, modal,
+                                i, cells[i])] = (it, modal)
+        else:
+            _apply_row_rescore(it, modal,
+                               _score_cell_worker(source_spec, modal, i, cells[i]))
+    for fut, (it, modal) in futures.items():
+        _apply_row_rescore(it, modal, fut.result())
+
+
+def _apply_row_rescore(item, modal, res):
+    """把行投票的重打分结果写回 item：认字对齐行字，分数用新比对。"""
+    item.clear()
+    item.update(res)
+    if "error" not in item:
+        item["char"] = modal
+        item["target_char"] = modal
+        item["char_match"] = True
+        item["row_vote"] = True
+
+
 def count_cells(image_bytes):
     """轻量统计这张照片里有几个田字格（app 用于选择流式/普通响应）。"""
     return geometry.count_cells(image_bytes)
@@ -277,18 +356,22 @@ def score_image_multi(*, image_bytes=None, image_path=None, target_char=None):
                            target_char=target_char)
 
     empty = 0
-    # 先廉价预筛掉空格（空行/词间空列），只对写了字的格子打分；
-    # cell 序号保留在整页网格里的原始位置，前端对得上
-    queue = []
-    for i, quad in enumerate(cells):
-        try:
-            if geometry.cell_has_ink(img, quad):
-                queue.append((i, quad))
-            else:
-                empty += 1
-        except Exception:
-            queue.append((i, quad))     # 预筛失败不放过，交给完整流程判断
-    queue = queue[:MAX_CELLS_SCORED]    # 整页练习纸可能上百格，限制响应体积
+    # 格子不多时全打（打分是并行的，预筛省不了时间还可能漏检淡字）；
+    # 超页的大练习纸才用预筛砍到 MAX_CELLS_SCORED 以内
+    empty = 0
+    if len(cells) <= MAX_CELLS_SCORED:
+        queue = list(enumerate(cells))
+    else:
+        queue = []
+        for i, quad in enumerate(cells):
+            try:
+                if geometry.cell_has_ink(img, quad):
+                    queue.append((i, quad))
+                else:
+                    empty += 1
+            except Exception:
+                queue.append((i, quad))  # 预筛失败不放过，交给完整流程判断
+        queue = queue[:MAX_CELLS_SCORED]
 
     kind = "bytes" if image_bytes is not None else "path"
     if len(queue) > 1:
@@ -300,6 +383,10 @@ def score_image_multi(*, image_bytes=None, image_path=None, target_char=None):
     else:
         results = [_score_cell_worker((kind, source), target_char, i, quad)
                    for i, quad in queue]
+    if len(results) > 1:
+        _row_vote_rescore(results, results, cells, (kind, source), target_char,
+                          _get_cell_pool() if len(results) > 1 else None)
+
     out = {"count": len(results), "results": results,
            "elapsed": round(time.time() - started, 3)}
     if empty:
@@ -342,38 +429,55 @@ def score_image_multi_stream(*, image_bytes=None, image_path=None,
         return
 
     empty = 0
-    queue = []
-    for i, quad in enumerate(cells):
-        try:
-            if geometry.cell_has_ink(img, quad):
+    if len(cells) <= MAX_CELLS_SCORED:
+        queue = list(enumerate(cells))
+    else:
+        queue = []
+        for i, quad in enumerate(cells):
+            try:
+                if geometry.cell_has_ink(img, quad):
+                    queue.append((i, quad))
+                else:
+                    empty += 1
+            except Exception:
                 queue.append((i, quad))
-            else:
-                empty += 1
-        except Exception:
-            queue.append((i, quad))
-    queue = queue[:MAX_CELLS_SCORED]
+        queue = queue[:MAX_CELLS_SCORED]
     yield json.dumps({"type": "meta", "count": len(queue),
                       "empty_cells": empty, "total_cells": len(cells)},
                      ensure_ascii=False) + "\n"
 
     kind = "bytes" if image_bytes is not None else "path"
+    done_items = []
+    held = []
     if len(queue) > 1:
         pool = _get_cell_pool()
         futures = [pool.submit(_score_cell_worker, (kind, source),
                                target_char, i, quad)
                    for i, quad in queue]
-        # 谁先完成谁先走：用户先看到先写好的格子
+        # 高置信的格子谁先完成谁先走；低置信/报错的先扣住——
+        # 等行投票重打分后再流出（练字本每行同一个字）
         for fut in concurrent.futures.as_completed(futures):
             item = fut.result()
-            item["elapsed_cell"] = round(time.time() - started, 2)
-            yield json.dumps({"type": "cell", **item},
-                             ensure_ascii=False) + "\n"
+            if item.get("error") or float(item.get("ocr_conf") or 0) < 0.75:
+                held.append(item)
+            else:
+                done_items.append(item)
     else:
         for i, quad in queue:
-            item = _score_cell_worker((kind, source), target_char, i, quad)
-            item["elapsed_cell"] = round(time.time() - started, 2)
-            yield json.dumps({"type": "cell", **item},
-                             ensure_ascii=False) + "\n"
+            done_items.append(_score_cell_worker((kind, source), target_char,
+                                                 i, quad))
+
+    if held and len(done_items) + len(held) > 1:
+        for it in held:
+            it["elapsed_cell"] = round(time.time() - started, 2)
+        _row_vote_rescore(held, done_items + held, cells, (kind, source),
+                          target_char,
+                          _get_cell_pool() if len(held) > 1 else None)
+    for it in sorted(held, key=lambda x: x.get("cell", 0)):
+        yield json.dumps({"type": "cell", **it}, ensure_ascii=False) + "\n"
+
+    for it in sorted(done_items, key=lambda x: x.get("cell", 0)):
+        yield json.dumps({"type": "cell", **it}, ensure_ascii=False) + "\n"
     yield json.dumps({"type": "done",
                       "elapsed": round(time.time() - started, 3)},
                      ensure_ascii=False) + "\n"
@@ -480,10 +584,14 @@ def score_image(*, image_bytes=None, image_path=None, target_char=None,
         "recognized": recognized,
     }
 
+    ocr_conf = 0.0
+    if recognized:
+        ocr_conf = float(recognized[0].get("score") or 0)
     return {
         "char": ocr_char or "?",
         "target_char": target_char,
         "char_match": char_match,
+        "ocr_conf": round(ocr_conf, 4),
         "total": total,
         "full_marks": rubric.FULL_MARKS,
         "level": verdict["level"],

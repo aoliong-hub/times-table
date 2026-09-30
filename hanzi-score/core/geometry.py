@@ -42,7 +42,7 @@ CENTER_TOL = 0.06         # 字块中心偏移格子中心超过 6% → 明显�
 STROKE_W_MIN = 24         # 标准字渲染线宽的夹取范围（px @1024）
 STROKE_W_MAX = 56
 DEFAULT_STROKE_W = 36     # 拿不到实测笔画宽时的默认线宽
-INK_MIN_RATIO = 0.008     # 墨迹像素占比低于 0.8% → too_faint
+INK_MIN_RATIO = 0.002     # 墨迹像素占比低于 0.8% → too_faint
 STROKE_ALIGN_GOOD = 0.9   # 单笔对齐率 ≥90% → 绿色（这一笔写到位了）
 STROKE_ALIGN_PART = 0.6   # 60%~90% → 黄色（部分到位）；<60% → 红色（基本没写对）
 NOISE_AREA = 0.00005 * GRID_SIZE * GRID_SIZE   # 小于它的连通域当噪点
@@ -549,6 +549,27 @@ def _find_cells_hough(bgr):
             small = bgr
         gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
         xs, ys = _find_lines_hough(gray)
+        # 覆盖率校验：真格线在「剔除了墨迹的格线 mask」上连续可见，
+        # 字的笔画（横竖撇捺）不在——否则单格大字会被拆成假格子
+        try:
+            gmask = _grid_line_mask(small)
+            def _covered(positions, horizontal):
+                keep = []
+                for pos in positions:
+                    p = int(round(pos))
+                    if horizontal:
+                        trace = gmask[max(0, p - 2):p + 3, :].any(axis=0)
+                    else:
+                        trace = gmask[:, max(0, p - 2):p + 3].any(axis=1)
+                    on = trace.nonzero()[0]
+                    cov = float(len(on)) / float(len(trace))
+                    if cov >= 0.15:
+                        keep.append(pos)
+                return keep
+            xs = _covered(xs, False)
+            ys = _covered(ys, True)
+        except Exception:
+            pass
         if len(xs) < 2 or len(ys) < 2:
             return []
         min_side = 0.04 * min(gray.shape[:2])
@@ -577,8 +598,9 @@ def find_cells(bgr):
     for th in (18, 14, 10):
         cells = _find_cells_once(bgr, th)
         if cells:
-            return cells
-    return _find_cells_hough(bgr)
+            return _extend_lattice(cells, bgr.shape[0], bgr.shape[1])
+    return _extend_lattice(_find_cells_hough(bgr),
+                           bgr.shape[0], bgr.shape[1])
 
 
 def crop_quad(bgr, quad, margin=0.08):
@@ -665,25 +687,31 @@ def warp_to_cell(bgr, quad, size=GRID_SIZE):
 
 
 def cell_has_ink(bgr, quad):
-    """廉价预筛：256px 缩样上估计格子里有没有手写墨迹。
+    """廉价预筛：256px 缩样上跑 extract_ink 的同款小号流水线。
 
     整页练习纸里大量空格（空行/词间空列），逐格走完整流水线太浪费。
-    只看「比当地纸面暗两档」的像素（字迹），格线只暗一档不算；
-    四周 1/4 边缘区不看（格线残迹集中在这里）。
+    必须和 extract_ink 同款（Sauvola + 剔红线 + 剔浅格线），否则粗筛
+    会在极淡铅笔字上漏检（multi04：diff 全程 <40，粗筛全判空）——
+    保证「预筛说有，完整管线就一定有」。
     """
-    small = warp_to_cell(bgr, quad, size=256)
-    gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (11, 11))
-    local_bg = cv2.dilate(gray, kernel)
-    dark = (local_bg.astype(np.int16) - gray.astype(np.int16)) > 60
-    # 老师的红笔批改痕也是「暗」的，但不是孩子的字——连同膨胀边一起剔掉
-    red = _red_mask(small)
-    if cv2.countNonZero(red):
-        dark &= ~cv2.dilate(red, np.ones((7, 7), np.uint8)).astype(bool)
-    inner = dark[64:192, 64:192]
-    # 批改杠在本样例里已褪成和铅笔一样的灰、形状也与细笔画重合，
-    # 形态/颜色都分不开（会误杀「月」的竖笔），只能靠 OCR 侧兜底
-    return float(inner.mean()) > 0.0018
+    try:
+        small = warp_to_cell(bgr, quad, size=256)
+        gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
+        from skimage.filters import threshold_sauvola
+        thresh = threshold_sauvola(gray, window_size=15, k=0.2)
+        binary = ((gray < thresh) * 255).astype(np.uint8)
+        red = _red_mask(small)
+        if cv2.countNonZero(red):
+            binary = cv2.bitwise_and(
+                binary, cv2.bitwise_not(cv2.dilate(red, np.ones((3, 3), np.uint8))))
+        # 剔格线：格线只比当地纸面暗一档（与 extract_ink 的 DIFF_INK 滤波同款）
+        local_bg = cv2.dilate(gray, np.ones((39, 39), np.uint8))
+        keep = (local_bg.astype(np.int16) - gray.astype(np.int16)) > DIFF_INK
+        binary = cv2.bitwise_and(binary, (keep * 255).astype(np.uint8))
+        inner = binary[64:192, 64:192]
+        return float(cv2.countNonZero(inner)) > 0.0018 * inner.size
+    except Exception:
+        return True    # 预筛失败不放过，交给完整管线判断
 
 
 def extract_ink(warped):
@@ -844,7 +872,10 @@ def _ocr_crops(warped, ink):
 
     1. 对比度归一的灰度字块（256px）——保留真实笔触浓淡，实测对
        淡铅笔字的置信度 ~0.99，远高于二值 mask 的 ~0.4
-    2. 墨迹 mask 平滑加粗版（128px）——灰度不可靠（彩色纸/阴影重）
+    2. 墨迹掩码定向拉伸的灰度（256px）——极淡铅笔字的笔画和纸面
+       只差十几个灰阶，整体 MINMAX 归一救不动；按掩码把
+       [笔画灰度, 纸面灰度] 区间拉满到 [0,255]，对比度放大数倍
+    3. 墨迹 mask 平滑加粗版（128px）——灰度不可靠（彩色纸/阴影重）
        时的兜底；先高斯再阈值去低分辨率锯齿，dilate 恢复笔画重量
     """
     region = _ink_region(warped, ink)
@@ -853,15 +884,26 @@ def _ocr_crops(warped, ink):
     x0, y0, x1, y1 = region
     crops = []
     gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)[y0:y1 + 1, x0:x1 + 1]
+    mask = ink[y0:y1 + 1, x0:x1 + 1] > 0
     side = max(gray.shape)
     oy, ox = (side - gray.shape[0]) // 2, (side - gray.shape[1]) // 2
     padg = np.full((side, side), 255, np.uint8)
     padg[oy:oy + gray.shape[0], ox:ox + gray.shape[1]] = gray
     norm = cv2.normalize(padg, None, 0, 255, cv2.NORM_MINMAX)
     crops.append(("gray", cv2.resize(norm, (256, 256))))
-    mask = ink[y0:y1 + 1, x0:x1 + 1]
+    if mask.sum() >= 30:
+        gf = gray.astype(np.float32)
+        paper = float(np.median(gf[~mask]))
+        inkv = float(np.percentile(gf[mask], 30))
+        if paper - inkv >= 5:
+            stretch = np.clip((gf - inkv) / max(1.0, paper - inkv) * 255,
+                              0, 255).astype(np.uint8)
+            pads = np.full((side, side), 255, np.uint8)
+            pads[oy:oy + stretch.shape[0], ox:ox + stretch.shape[1]] = stretch
+            crops.append(("stretch", cv2.resize(pads, (256, 256))))
     padm = np.zeros((side, side), np.uint8)
-    padm[oy:oy + mask.shape[0], ox:ox + mask.shape[1]] = mask
+    padm[oy:oy + mask.shape[0], ox:ox + mask.shape[1]] = (
+        mask.astype(np.uint8) * 255)
     blur = cv2.GaussianBlur(padm, (5, 5), 0)
     smooth = ((blur > 100) * 255).astype(np.uint8)
     thick = cv2.dilate(smooth, np.ones((5, 5), np.uint8))
@@ -1194,6 +1236,29 @@ def _grow_quad(quad, need):
         if bottom and y > cy:
             quad[i, 1] = cy + (y - cy) * 1.3
     return quad.astype(np.float32)
+
+
+def _extend_lattice(cells, img_h, img_w):
+    """等距练习本的边缘行漏检时向外延一步（多04：第一行整行漏检）。
+
+    只延一步、只延纵向；延出来的空格由 cell_has_ink 预筛过滤，不会
+    把桌面/纸边当成格子。
+    """
+    if not cells or len(cells) < 4:
+        return cells
+    h = float(np.median([q[:, 1].max() - q[:, 1].min() for q in cells]))
+    if h < 0.05 * img_h:
+        return cells
+    out = list(cells)
+    top = min(q[:, 1].min() for q in cells)
+    bottom = max(q[:, 1].max() for q in cells)
+    top_row = [q for q in cells if abs(q[:, 1].min() - top) < h * 0.3]
+    bottom_row = [q for q in cells if abs(q[:, 1].max() - bottom) < h * 0.3]
+    if top - h >= 0.005 * img_h:
+        out.extend(q + np.array([0, -h], np.float32) for q in top_row)
+    if bottom + h <= 0.98 * img_h:
+        out.extend(q + np.array([0, h], np.float32) for q in bottom_row)
+    return out
 
 
 def count_cells(source):
