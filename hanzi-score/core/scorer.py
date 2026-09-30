@@ -119,6 +119,64 @@ def _apply_row_rescore(item, modal, res):
         item["row_vote"] = True
 
 
+def _png_data_uri(png_bytes):
+    if not png_bytes:
+        return None
+    return "data:image/jpeg;base64," + base64.b64encode(png_bytes).decode()
+
+
+def _segments_overlay(img, cells, results):
+    """把分割结果画回原图：每格按评分类别着色描边 + 标注「序号:分数」。
+
+    绿=优秀(≥80)，黄=合格(60~79)，红=需重写(<60)，灰=报错/太淡。
+    返回 PNG bytes（最长边压到 900 控制响应体积），失败返回 None。
+    """
+    try:
+        h, w = img.shape[:2]
+        scale = min(1.0, 900.0 / max(h, w))
+        vis = cv2.resize(img, (int(w * scale), int(h * scale))) if scale < 1.0 else img.copy()
+        by_cell = {}
+        for it in results:
+            i = (it.get("cell") or 0) - 1
+            if 0 <= i < len(cells):
+                by_cell[i] = it
+        for i, quad in enumerate(cells):
+            it = by_cell.get(i)
+            if it is None:
+                color = (200, 200, 200)          # 预筛掉的空格：浅灰细线
+                thickness = 1
+                label = ""
+            elif it.get("error"):
+                color = (160, 160, 160)
+                thickness = 2
+                label = "%d:x" % (i + 1)
+            else:
+                total = int(it.get("total") or 0)
+                if total >= 80:
+                    color = (80, 190, 90)        # 绿 (BGR)
+                elif total >= 60:
+                    color = (30, 170, 240)       # 黄橙
+                else:
+                    color = (60, 60, 230)        # 红
+                thickness = 3
+                label = "%d:%d" % (i + 1, total)
+            pts = np.asarray(quad, np.float32).reshape(-1, 1, 2)
+            if scale < 1.0:
+                pts = pts * scale
+            cv2.polylines(vis, [pts.astype(np.int32)], True, color, thickness)
+            if label:
+                p = pts.astype(np.int32).reshape(-1, 2)
+                tx, ty = int(p[:, 0].min()) + 4, int(p[:, 1].min()) + 18
+                cv2.putText(vis, label, (tx, ty), cv2.FONT_HERSHEY_SIMPLEX,
+                            0.55, (255, 255, 255), 3)
+                cv2.putText(vis, label, (tx, ty), cv2.FONT_HERSHEY_SIMPLEX,
+                            0.5, (40, 40, 40), 1)
+        ok, buf = cv2.imencode(".jpg", vis, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+        return buf.tobytes() if ok else None
+    except Exception:
+        return None
+
+
 def count_cells(image_bytes):
     """轻量统计这张照片里有几个田字格（app 用于选择流式/普通响应）。"""
     return geometry.count_cells(image_bytes)
@@ -386,7 +444,18 @@ def score_image_multi(*, image_bytes=None, image_path=None, target_char=None):
     if len(results) > 1:
         _row_vote_rescore(results, results, cells, (kind, source), target_char,
                           _get_cell_pool() if len(results) > 1 else None)
-
+        seg = _segments_overlay(img, cells, results)
+        if seg:
+            out = {"count": len(results), "results": results,
+                   "segments_overlay": _png_data_uri(seg),
+                   "elapsed": round(time.time() - started, 3)}
+        else:
+            out = {"count": len(results), "results": results,
+                   "elapsed": round(time.time() - started, 3)}
+        if empty:
+            out["empty_cells"] = empty
+            out["total_cells"] = len(cells)
+        return out
     out = {"count": len(results), "results": results,
            "elapsed": round(time.time() - started, 3)}
     if empty:
@@ -476,6 +545,12 @@ def score_image_multi_stream(*, image_bytes=None, image_path=None,
     for it in sorted(held, key=lambda x: x.get("cell", 0)):
         yield json.dumps({"type": "cell", **it}, ensure_ascii=False) + "\n"
 
+    if len(done_items) + len(held) > 1:
+        seg = _segments_overlay(img, cells, done_items + held)
+        if seg:
+            yield json.dumps({"type": "segments",
+                              "image": _png_data_uri(seg)},
+                             ensure_ascii=False) + "\n"
     for it in sorted(done_items, key=lambda x: x.get("cell", 0)):
         yield json.dumps({"type": "cell", **it}, ensure_ascii=False) + "\n"
     yield json.dumps({"type": "done",

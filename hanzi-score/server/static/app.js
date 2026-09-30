@@ -21,6 +21,7 @@
     levelBadge: document.getElementById('level-badge'),
     charLine: document.getElementById('char-line'),
     cellList: document.getElementById('cell-list'),
+    segmentsOverlay: document.getElementById('segments-overlay'),
     dims: document.getElementById('dims'),
     improveWrap: document.getElementById('improve-wrap'),
     improvements: document.getElementById('improvements'),
@@ -266,8 +267,24 @@
     var firstShown = false;
 
     function handle(d) {
-      if (d.type === 'single') { render(d); return; }   // 单格兼容
+      if (d.type === 'single') {
+        if (d.segments_overlay) {
+          el.segmentsOverlay.src = d.segments_overlay;
+          show(el.segmentsOverlay);
+        } else {
+          hide(el.segmentsOverlay);
+        }
+        render(d);
+        return;
+      }   // 单格兼容
       console.log('[dbg] 行类型', d.type);
+      if (d.type === 'segments') {
+        if (d.image) {
+          el.segmentsOverlay.src = d.image;
+          show(el.segmentsOverlay);
+        }
+        return;
+      }
       if (d.type === 'meta') {
         el.cellList.textContent = '';
         var hint = document.createElement('div');
@@ -312,6 +329,12 @@
   /* ---------- 渲染结果 ---------- */
 
   function render(data) {
+    if (data.segments_overlay) {
+      el.segmentsOverlay.src = data.segments_overlay;
+      show(el.segmentsOverlay);
+    } else {
+      hide(el.segmentsOverlay);
+    }
     if (data.results && data.results.length) {      // 兼容旧整包结构
       el.cellList.textContent = '';
       data.results.forEach(function (r) { addCellRow(r); });

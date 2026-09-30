@@ -239,6 +239,14 @@ main { max-width: 540px; margin: 0 auto; }
 .actions { margin-top: 16px; }
 
 /* ===== 多格照片：每格一个分数按钮 ===== */
+.segments-overlay {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  margin-bottom: 12px;
+  display: block;
+}
+
 .cell-progress {
   font-size: 13px;
   color: #8a8f98;
