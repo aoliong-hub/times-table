@@ -129,7 +129,7 @@ def _segments_overlay(img, cells, results):
     """把分割结果画回原图：每格按评分类别着色描边 + 标注「序号:分数」。
 
     绿=优秀(≥80)，黄=合格(60~79)，红=需重写(<60)，灰=报错/太淡。
-    返回 PNG bytes（最长边压到 900 控制响应体积），失败返回 None。
+    返回 (JPEG bytes, 按输出图坐标缩放的四边形列表)；失败返回 (None, [])。
     """
     try:
         h, w = img.shape[:2]
@@ -171,10 +171,12 @@ def _segments_overlay(img, cells, results):
                             0.55, (255, 255, 255), 3)
                 cv2.putText(vis, label, (tx, ty), cv2.FONT_HERSHEY_SIMPLEX,
                             0.5, (40, 40, 40), 1)
+        quads = [np.asarray(q, np.float32).reshape(-1, 2) *
+                 (scale if scale < 1.0 else 1.0) for q in cells]
         ok, buf = cv2.imencode(".jpg", vis, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
-        return buf.tobytes() if ok else None
+        return (buf.tobytes() if ok else None), quads
     except Exception:
-        return None
+        return None, []
 
 
 def count_cells(image_bytes):
@@ -207,10 +209,10 @@ def _score_cell_worker(source_spec, target_char, i, quad):
     try:
         if kind == "bytes":
             item.update(score_image(image_bytes=data, target_char=target_char,
-                                    quad=quad))
+                                    quad=quad, include_cell_image=True))
         else:
             item.update(score_image(image_path=data, target_char=target_char,
-                                    quad=quad))
+                                    quad=quad, include_cell_image=True))
     except ScoreError as exc:
         item["error"] = str(exc)
     except Exception:
@@ -444,10 +446,12 @@ def score_image_multi(*, image_bytes=None, image_path=None, target_char=None):
     if len(results) > 1:
         _row_vote_rescore(results, results, cells, (kind, source), target_char,
                           _get_cell_pool() if len(results) > 1 else None)
-        seg = _segments_overlay(img, cells, results)
+        seg, seg_quads = _segments_overlay(img, cells, results)
         if seg:
             out = {"count": len(results), "results": results,
                    "segments_overlay": _png_data_uri(seg),
+                   "segments_quads": [[[round(float(v), 1) for v in p]
+                                        for p in q] for q in seg_quads],
                    "elapsed": round(time.time() - started, 3)}
         else:
             out = {"count": len(results), "results": results,
@@ -546,10 +550,12 @@ def score_image_multi_stream(*, image_bytes=None, image_path=None,
         yield json.dumps({"type": "cell", **it}, ensure_ascii=False) + "\n"
 
     if len(done_items) + len(held) > 1:
-        seg = _segments_overlay(img, cells, done_items + held)
+        seg, seg_quads = _segments_overlay(img, cells, done_items + held)
         if seg:
             yield json.dumps({"type": "segments",
-                              "image": _png_data_uri(seg)},
+                              "image": _png_data_uri(seg),
+                              "quads": [[[round(float(v), 1) for v in p]
+                                         for p in q] for q in seg_quads]},
                              ensure_ascii=False) + "\n"
     for it in sorted(done_items, key=lambda x: x.get("cell", 0)):
         yield json.dumps({"type": "cell", **it}, ensure_ascii=False) + "\n"
@@ -559,7 +565,7 @@ def score_image_multi_stream(*, image_bytes=None, image_path=None,
 
 
 def score_image(*, image_bytes=None, image_path=None, target_char=None,
-                quad=None):
+                quad=None, include_cell_image=False):
     """给一张田字格练字图打分（纯本地，不调任何外部服务）。
 
     Args:
@@ -567,6 +573,8 @@ def score_image(*, image_bytes=None, image_path=None, target_char=None,
         image_path:  图片路径（CLI / 批量场景）。二者给一个即可。
         target_char: 这一格应该写的字，可选；不填则用 OCR 认字。
         quad: 这一格的四角点（多格分割的产物），给了就跳过单格检测。
+        include_cell_image: 多格路径用——结果里带这一格的透视归一图
+            （cell_image, data URI），前端详情里用它替换整张原图。
 
     Returns:
         前端要的评分 dict（含 geometry / geometry_overlay / elapsed）。
@@ -662,11 +670,24 @@ def score_image(*, image_bytes=None, image_path=None, target_char=None,
     ocr_conf = 0.0
     if recognized:
         ocr_conf = float(recognized[0].get("score") or 0)
+    cell_image = None
+    if include_cell_image and geo.get("warped") is not None:
+        try:
+            wimg = cv2.resize(geo["warped"], (320, 320),
+                              interpolation=cv2.INTER_AREA)
+            ok, wbuf = cv2.imencode(".jpg", wimg,
+                                    [int(cv2.IMWRITE_JPEG_QUALITY), 82])
+            if ok:
+                cell_image = ("data:image/jpeg;base64,"
+                              + base64.b64encode(wbuf.tobytes()).decode())
+        except Exception:
+            cell_image = None
     return {
         "char": ocr_char or "?",
         "target_char": target_char,
         "char_match": char_match,
         "ocr_conf": round(ocr_conf, 4),
+        "cell_image": cell_image,
         "total": total,
         "full_marks": rubric.FULL_MARKS,
         "level": verdict["level"],

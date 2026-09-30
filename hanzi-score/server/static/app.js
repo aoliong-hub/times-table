@@ -259,6 +259,40 @@
       });
   }
 
+  /* 总览图上点格子 = 点对应的分数按钮（point-in-quad 命中） */
+  var segQuads = null;
+  function bindOverlayClicks() {
+    if (!el.segmentsOverlay) return;
+    el.segmentsOverlay.onclick = function (ev) {
+      if (!segQuads || !segQuads.length) return;
+      var rect = el.segmentsOverlay.getBoundingClientRect();
+      var x = (ev.clientX - rect.left) * el.segmentsOverlay.naturalWidth / rect.width;
+      var y = (ev.clientY - rect.top) * el.segmentsOverlay.naturalHeight / rect.height;
+      for (var i = 0; i < segQuads.length; i++) {
+        if (pointInQuad(x, y, segQuads[i])) {
+          activateCell(i + 1);
+          return;
+        }
+      }
+    };
+  }
+  function pointInQuad(x, y, quad) {
+    var inside = false;
+    for (var i = 0, j = quad.length - 1; i < quad.length; j = i++) {
+      var xi = quad[i][0], yi = quad[i][1];
+      var xj = quad[j][0], yj = quad[j][1];
+      if ((yi > y) !== (yj > y) &&
+          x < (xj - xi) * (y - yi) / (yj - yi) + xi) {
+        inside = !inside;
+      }
+    }
+    return inside;
+  }
+  function activateCell(cellNum) {
+    var btn = el.cellList.querySelector('.cell-row[data-cell="' + cellNum + '"]');
+    if (btn) btn.click();
+  }
+
   /* 读 NDJSON 流：meta → cell… → done，每行一个 JSON */
   function streamResults(resp) {
     var reader = resp.body.getReader();
@@ -269,6 +303,8 @@
     function handle(d) {
       if (d.type === 'single') {
         if (d.segments_overlay) {
+          segQuads = d.segments_quads || null;
+          bindOverlayClicks();
           el.segmentsOverlay.src = d.segments_overlay;
           show(el.segmentsOverlay);
         } else {
@@ -282,6 +318,10 @@
         if (d.image) {
           el.segmentsOverlay.src = d.image;
           show(el.segmentsOverlay);
+          if (d.quads) {
+            segQuads = d.quads;
+            bindOverlayClicks();
+          }
         }
         return;
       }
@@ -348,10 +388,13 @@
   }
 
   /* 多格照片：顶部一格一个按钮，点谁下面显示谁的详情 */
+  var cellItems = {};
   function addCellRow(r) {
     var idx = el.cellList.querySelectorAll('.cell-row').length;
     var btn = document.createElement('button');
     btn.type = 'button';
+    btn.dataset.cell = r.cell || (idx + 1);
+    cellItems[r.cell || (idx + 1)] = r;
     btn.className = 'cell-row' + (r.error ? ' bad' : '');
     var text = '第 ' + (r.cell || idx + 1) + ' 格';
     if (r.error) {
@@ -464,7 +507,8 @@
       });
       if (ov) {
         // 底图 = 米字格；ink = 黑色手写；std = 深灰标准字形（只看标准用）
-        el.geometryOriginal.src = el.preview.src || '';
+        // 多格详情：左侧显示这一格自己的裁剪图（而不是整张原图）
+    el.geometryOriginal.src = data.cell_image || el.preview.src || '';
         el.geometryGrid.src = ov.grid || '';
         el.geometryInk.src = ov.ink || '';
         if (ov.std) {
