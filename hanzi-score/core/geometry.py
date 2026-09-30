@@ -30,6 +30,7 @@ HANZI_DATA_DIR = os.environ.get("HANZI_DATA_DIR", _DEFAULT_DATA_DIR)
 RECOGNIZE_CHARSET = "chars_3500.txt"
 _RECOGNIZE_RENDER = 256   # 认字模板的渲染边长（比对前再缩到 64）
 _RECOGNIZE_SIZE = 64      # 比对用的统一边长
+_TPL_SHORTLIST = 150      # 粗签名海选后进入精算的候选数
 
 # —— 比对阈值（比例均相对 GRID_SIZE，即「占格宽度的百分比」）——
 COVER_DIST = 0.05         # 标准笔画中线点离手写墨迹 < 5% 格宽算「写到了」
@@ -54,7 +55,7 @@ RED_KILL_FALLBACK = 0.2   # 剔红线后墨迹不足纯二值化的 20% → 认�
 # 真黑（gray<40）无条件算墨迹——暗部 HSV 的 S 是比值、黑像素会虚高
 # 成 255 完全不可信，而暗红格线核心的 gray 通常 >60，不会误伤
 DIFF_NOT_PAPER = 14
-DIFF_INK = 55
+DIFF_INK = 48
 INK_SAT_MAX = 70
 GRAY_INK_MAX = 40
 
@@ -675,7 +676,13 @@ def cell_has_ink(bgr, quad):
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (11, 11))
     local_bg = cv2.dilate(gray, kernel)
     dark = (local_bg.astype(np.int16) - gray.astype(np.int16)) > 60
+    # 老师的红笔批改痕也是「暗」的，但不是孩子的字——连同膨胀边一起剔掉
+    red = _red_mask(small)
+    if cv2.countNonZero(red):
+        dark &= ~cv2.dilate(red, np.ones((7, 7), np.uint8)).astype(bool)
     inner = dark[64:192, 64:192]
+    # 批改杠在本样例里已褪成和铅笔一样的灰、形状也与细笔画重合，
+    # 形态/颜色都分不开（会误杀「月」的竖笔），只能靠 OCR 侧兜底
     return float(inner.mean()) > 0.0018
 
 
@@ -910,6 +917,13 @@ def recognize_char(ink_mask, warped=None, top_n=5):
         return None
 
 
+def _tpl_signature(tpl):
+    """模板的 16×16 粗签名：3500 个候选先用它海选，只对最像的前
+    _TPL_SHORTLIST 个做精细 chamfer/IoU（那一步是纯 Python，占 GIL，
+    逐格打分的并行瓶颈就在这）。"""
+    return cv2.resize(tpl, (16, 16), interpolation=cv2.INTER_AREA)
+
+
 def recognize_char_by_template(ink_mask, top_n=5):
     """模板匹配认字（OCR 的兜底）：手写墨迹 vs 标准字库。
 
@@ -920,11 +934,13 @@ def recognize_char_by_template(ink_mask, top_n=5):
         ink64 = _norm_blob(ink_mask)
         if ink64 is None or cv2.countNonZero(ink64) < 16:
             return []
+        ink_sig = _tpl_signature(ink64).astype(np.float32) / 255.0
         ink_pts = np.column_stack(np.nonzero(ink64 > 0))[:, ::-1].astype(np.float32)
         dt_ink = _dt_of(ink64)
         ink_d = cv2.dilate(ink64, np.ones((3, 3), np.uint8))
 
-        scored = []
+        # 第一遍：粗签名海选（纯向量化，3500 字 ~毫秒级）
+        coarse = []
         for char in _charset():
             if char not in _template_cache:
                 std = load_standard(char)
@@ -937,13 +953,21 @@ def recognize_char_by_template(ink_mask, top_n=5):
                     if tpl is None:
                         _template_cache[char] = None
                     else:
-                        # 距离变换和膨胀只算一次存进缓存，多次认字时复用
+                        # 距离变换/膨胀/粗签名只算一次存进缓存，多次认字时复用
                         _template_cache[char] = (tpl, _dt_of(tpl),
-                                                 cv2.dilate(tpl, np.ones((3, 3), np.uint8)))
+                                                 cv2.dilate(tpl, np.ones((3, 3), np.uint8)),
+                                                 _tpl_signature(tpl).astype(np.float32) / 255.0)
             entry = _template_cache[char]
             if entry is None or cv2.countNonZero(entry[0]) < 8:
                 continue
-            tpl, dt_std, tpl_d = entry
+            dist = float(np.abs(entry[3] - ink_sig).sum())
+            coarse.append((dist, char))
+        coarse.sort(key=lambda p: p[0])
+
+        # 第二遍：只对最像的短名单做精细打分
+        scored = []
+        for _, char in coarse[:_TPL_SHORTLIST]:
+            tpl, dt_std, tpl_d, _sig = _template_cache[char]
             std_pts = np.column_stack(np.nonzero(tpl > 0))[:, ::-1].astype(np.float32)
             # 对称 chamfer（平均每点离对方笔画的距离 / 64）
             d1 = float(dt_ink[std_pts[:, 1].astype(int), std_pts[:, 0].astype(int)].mean())
@@ -1140,6 +1164,49 @@ def _load_source(source):
         return None
 
 
+def _ink_overflow(ink):
+    """墨迹是否贴到归一化图边缘（外圈 3% 有墨 = 字被格子切了）。
+    返回 (左, 右, 上, 下) 布尔。"""
+    size = ink.shape[0]
+    band = max(8, int(size * 0.03))
+    inked = ink > 0
+    area = max(1, inked.sum())
+    left = inked[:, :band].sum() > area * 0.06
+    right = inked[:, -band:].sum() > area * 0.06
+    top = inked[:band, :].sum() > area * 0.06
+    bottom = inked[-band:, :].sum() > area * 0.06
+    return left, right, top, bottom
+
+
+def _grow_quad(quad, need):
+    """按 (左,右,上,下) 需求把四边形向外扩 30%（图像范围内由 warp 裁剪）。"""
+    quad = quad.astype(np.float64).copy()
+    left, right, top, bottom = need
+    cx, cy = quad[:, 0].mean(), quad[:, 1].mean()
+    for i in range(4):
+        x, y = quad[i]
+        if left and x < cx:
+            quad[i, 0] = cx - (cx - x) * 1.3
+        if right and x > cx:
+            quad[i, 0] = cx + (x - cx) * 1.3
+        if top and y < cy:
+            quad[i, 1] = cy - (cy - y) * 1.3
+        if bottom and y > cy:
+            quad[i, 1] = cy + (y - cy) * 1.3
+    return quad.astype(np.float32)
+
+
+def count_cells(source):
+    """轻量入口：这张照片里有几个田字格（不逐格打分）。"""
+    try:
+        img = _load_source(source)
+        if img is None:
+            return 0
+        return len(find_cells(img))
+    except Exception:
+        return 0
+
+
 def extract(source, char=None, quad=None):
     """总入口：照片（bytes/路径）→ 几何指标。永不抛异常。
 
@@ -1165,6 +1232,16 @@ def extract(source, char=None, quad=None):
                 return {"ok": False, "reason": "no_cell", "detail": "没找到田字格外框"}
         warped = warp_to_cell(img, cell["quad"])
         ink = extract_ink(warped)
+        # 页面弧度/斜拍会让字骑在格子边界上被切掉一角，OCR/比对都废。
+        # 墨迹贴边（外圈 3% 有墨）就向该方向扩格重切，至多两轮。
+        quad_f = np.asarray(cell["quad"], np.float32)
+        for _ in range(2):
+            need = _ink_overflow(ink)
+            if not any(need):
+                break
+            quad_f = _grow_quad(quad_f, need)
+            warped = warp_to_cell(img, quad_f)
+            ink = extract_ink(warped)
         if cv2.countNonZero(ink) < INK_MIN_RATIO * ink.size:
             return {"ok": False, "reason": "too_faint", "detail": "笔迹太淡或没写到"}
 

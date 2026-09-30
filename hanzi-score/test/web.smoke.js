@@ -81,7 +81,7 @@ function fakeResult(overrides) {
  * 起一个装好页面的 jsdom 环境。
  * health 与 score 的响应都由参数给定，fetch 全程不出网。
  */
-function boot({ health, scoreResult, scoreStatus = 200 } = {}) {
+function boot({ health, scoreResult, scoreStatus = 200, ndjson = null } = {}) {
   const dom = new JSDOM(HTML, {
     url: 'http://localhost:8360/',
     runScripts: 'outside-only',
@@ -104,14 +104,38 @@ function boot({ health, scoreResult, scoreStatus = 200 } = {}) {
       return Promise.resolve({
         ok: true,
         status: 200,
+        headers: { get: () => 'application/json' },
         json: () => Promise.resolve(health || { status: 'ok', mode: 'local' })
       });
     }
     if (/api\/score$/.test(String(url))) {
       calls.score.push(opts);
+      if (ndjson) {
+        // 必须用 jsdom realm 的 Uint8Array：页面里 jsdom 的 TextDecoder
+        // 不认 Node 侧构造的 buffer（真浏览器没有这个问题）
+        const text = ndjson.map((d) => JSON.stringify(d)).join('\n') + '\n';
+        const nodeBytes = require('util').TextEncoder ? new (require('util').TextEncoder)().encode(text) : Buffer.from(text, 'utf8');
+        const bytes = new win.Uint8Array(nodeBytes);
+        let sent = false;
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          headers: { get: () => 'application/x-ndjson' },
+          body: {
+            getReader: () => ({
+              read: () => {
+                if (sent) return Promise.resolve({ done: true });
+                sent = true;
+                return Promise.resolve({ done: false, value: bytes });
+              }
+            })
+          }
+        });
+      }
       return Promise.resolve({
         ok: scoreStatus === 200,
         status: scoreStatus,
+        headers: { get: () => 'application/json' },
         json: () => Promise.resolve(scoreStatus === 200 ? (scoreResult || fakeResult())
                                                        : { detail: '图片打不开，换一张试试' })
       });
@@ -344,6 +368,34 @@ it('没带几何结果时隐藏程序量了量区块', async () => {
   doc.getElementById('score-btn').click();
   await flush();
   assert(hidden(doc.getElementById('geometry')), 'geometry 为 null 时应隐藏');
+});
+
+it('NDJSON 流式：多格结果逐格点亮', async () => {
+  const nd = [
+    { type: 'meta', count: 3, empty_cells: 5, total_cells: 8 },
+    { type: 'cell', cell: 1, char: '双', total: 78, level: '良好', badge: '', emoji: '⭐',
+      need_rewrite: false, dimensions: [], praise: '', improvements: [],
+      geometry: null, geometry_overlay: null },
+    { type: 'cell', cell: 3, char: '肥', total: 66, level: '合格', badge: '', emoji: '👌',
+      need_rewrite: false, dimensions: [], praise: '', improvements: [],
+      geometry: null, geometry_overlay: null },
+    { type: 'cell', cell: 5, error: '笔迹太淡了，写重一点' },
+    { type: 'done', elapsed: 6.5 }
+  ];
+  const { win, doc, calls } = boot({ ndjson: nd });
+  await flush();
+  selectFile(win, doc);
+  doc.getElementById('score-btn').click();
+  await flush();
+  await new Promise((r) => setTimeout(r, 20));
+  const rows = doc.querySelectorAll('#cell-list .cell-row');
+  assert(rows.length === 3, '流式后应有 3 个格子按钮，实际 ' + rows.length);
+  assert(doc.querySelector('#cell-list .cell-progress') === null,
+    '进度提示应已被移除');
+  assert(/78 分/.test(rows[0].textContent), '第 1 格按钮应带分数');
+  assert(/笔迹太淡/.test(rows[2].textContent), '错误格应显示原因');
+  assert(rows[0].classList.contains('active'), '首格应自动选中');
+  assert(doc.getElementById('score-num').textContent === '78', '详情应显示首格分数');
 });
 
 it('多格结果按格子列分数，点一个显示那个格的详情', async () => {

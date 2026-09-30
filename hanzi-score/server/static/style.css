@@ -239,6 +239,12 @@ main { max-width: 540px; margin: 0 auto; }
 .actions { margin-top: 16px; }
 
 /* ===== 多格照片：每格一个分数按钮 ===== */
+.cell-progress {
+  font-size: 13px;
+  color: #8a8f98;
+  padding: 8px 4px;
+}
+
 .cell-list { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
 .cell-list button {
   padding: 7px 14px;

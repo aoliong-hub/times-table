@@ -10,6 +10,8 @@ core/geometry.py 里完成，本文件只负责把几何指标换算成
 """
 
 import base64
+import concurrent.futures
+import json
 import os
 import re
 import sys
@@ -33,6 +35,50 @@ except ImportError:                    # 直接以脚本方式跑本文件时
 _CJK_RE = re.compile("[一-鿿]")
 
 MAX_CELLS_SCORED = 40       # 一次最多打分的格子数（控制响应体积和耗时）
+MAX_CELL_WORKERS = 8        # 逐格打分的并行进程数（管线是 CPU 密集，线程会
+                            # 被 GIL 串行化，必须用进程）
+_CELL_POOL = None
+
+
+def count_cells(image_bytes):
+    """轻量统计这张照片里有几个田字格（app 用于选择流式/普通响应）。"""
+    return geometry.count_cells(image_bytes)
+
+
+def _cell_worker_init():
+    """fork 出的子进程里重置懒加载单例：onnxruntime 会话和模板缓存在
+    fork 来的进程里不可靠，让每个子进程首格时自己重建（并行发生，只慢一次）。"""
+    geometry._OCR = None
+    geometry._template_cache = {}
+
+
+def _get_cell_pool():
+    global _CELL_POOL
+    if _CELL_POOL is None:
+        import multiprocessing as mp
+        ctx = mp.get_context("fork")
+        _CELL_POOL = concurrent.futures.ProcessPoolExecutor(
+            max_workers=MAX_CELL_WORKERS, mp_context=ctx,
+            initializer=_cell_worker_init)
+    return _CELL_POOL
+
+
+def _score_cell_worker(source_spec, target_char, i, quad):
+    """单格打分（给进程池用）。source_spec = ("bytes"/"path", 数据)。"""
+    kind, data = source_spec
+    item = {"cell": i + 1}
+    try:
+        if kind == "bytes":
+            item.update(score_image(image_bytes=data, target_char=target_char,
+                                    quad=quad))
+        else:
+            item.update(score_image(image_path=data, target_char=target_char,
+                                    quad=quad))
+    except ScoreError as exc:
+        item["error"] = str(exc)
+    except Exception:
+        item["error"] = "打分失败"
+    return item
 
 # ---- 各维度扣分力度（占格宽度的比例 / 分数），调手感只动这一段 ----
 CENTER_FREE = 0.06          # 字块中心偏移格子中心 6% 以内不扣分
@@ -208,6 +254,7 @@ def score_image_multi(*, image_bytes=None, image_path=None, target_char=None):
     找到 0 或 1 个格子时，保持 score_image 原有的单结果结构（向后兼容）；
     找到多个格子时返回 {"count": N, "results": [...]}，每个 result 带
     "cell" 序号；单个格子打分失败不拖累其它格子，以 {"error": ...} 占位。
+    格子之间相互独立，用线程池并行（OCR 推理会释放 GIL，能吃满多核）。
     """
     started = time.time()
     source = image_bytes if image_bytes is not None else image_path
@@ -229,7 +276,6 @@ def score_image_multi(*, image_bytes=None, image_path=None, target_char=None):
         return score_image(image_bytes=image_bytes, image_path=image_path,
                            target_char=target_char)
 
-    results = []
     empty = 0
     # 先廉价预筛掉空格（空行/词间空列），只对写了字的格子打分；
     # cell 序号保留在整页网格里的原始位置，前端对得上
@@ -243,22 +289,94 @@ def score_image_multi(*, image_bytes=None, image_path=None, target_char=None):
         except Exception:
             queue.append((i, quad))     # 预筛失败不放过，交给完整流程判断
     queue = queue[:MAX_CELLS_SCORED]    # 整页练习纸可能上百格，限制响应体积
-    for i, quad in queue:
-        item = {"cell": i + 1}
-        try:
-            # 直接用分割出的四角点透视归一，不再逐格重复找框
-            item.update(score_image(image_bytes=image_bytes,
-                                    image_path=image_path,
-                                    target_char=target_char, quad=quad))
-        except ScoreError as exc:
-            item["error"] = str(exc)
-        results.append(item)
+
+    kind = "bytes" if image_bytes is not None else "path"
+    if len(queue) > 1:
+        pool = _get_cell_pool()
+        futures = [pool.submit(_score_cell_worker, (kind, source),
+                               target_char, i, quad)
+                   for i, quad in queue]
+        results = [f.result() for f in futures]
+    else:
+        results = [_score_cell_worker((kind, source), target_char, i, quad)
+                   for i, quad in queue]
     out = {"count": len(results), "results": results,
            "elapsed": round(time.time() - started, 3)}
     if empty:
         out["empty_cells"] = empty
         out["total_cells"] = len(cells)
     return out
+
+
+def score_image_multi_stream(*, image_bytes=None, image_path=None,
+                             target_char=None):
+    """流式版的多格打分：逐格产出 NDJSON 行，首格可见时间 ≈ 单格耗时。
+
+    行格式（application/x-ndjson，每行一个 JSON）：
+      {"type":"meta","count":N,"empty_cells":E,"total_cells":T}
+      {"type":"cell", ...单格结果...}          ← 打完一格推一格
+      {"type":"done","elapsed":秒}
+    单格/找不到格子时退化成一行 {"type":"single", ...完整单结果...}。
+    """
+    started = time.time()
+    source = image_bytes if image_bytes is not None else image_path
+    if source is None:
+        raise ScoreError("没有拿到图片")
+
+    img = None
+    try:
+        if image_bytes is not None:
+            img = cv2.imdecode(np.frombuffer(image_bytes, np.uint8),
+                               cv2.IMREAD_COLOR)
+        else:
+            img = cv2.imread(image_path)
+    except Exception:
+        img = None
+    cells = geometry.find_cells(img) if img is not None else []
+
+    if len(cells) <= 1:
+        result = score_image(image_bytes=image_bytes, image_path=image_path,
+                             target_char=target_char)
+        yield json.dumps({"type": "single", **result},
+                         ensure_ascii=False) + "\n"
+        return
+
+    empty = 0
+    queue = []
+    for i, quad in enumerate(cells):
+        try:
+            if geometry.cell_has_ink(img, quad):
+                queue.append((i, quad))
+            else:
+                empty += 1
+        except Exception:
+            queue.append((i, quad))
+    queue = queue[:MAX_CELLS_SCORED]
+    yield json.dumps({"type": "meta", "count": len(queue),
+                      "empty_cells": empty, "total_cells": len(cells)},
+                     ensure_ascii=False) + "\n"
+
+    kind = "bytes" if image_bytes is not None else "path"
+    if len(queue) > 1:
+        pool = _get_cell_pool()
+        futures = [pool.submit(_score_cell_worker, (kind, source),
+                               target_char, i, quad)
+                   for i, quad in queue]
+        # 谁先完成谁先走：用户先看到先写好的格子
+        for fut in concurrent.futures.as_completed(futures):
+            item = fut.result()
+            item["elapsed_cell"] = round(time.time() - started, 2)
+            yield json.dumps({"type": "cell", **item},
+                             ensure_ascii=False) + "\n"
+    else:
+        for i, quad in queue:
+            item = _score_cell_worker((kind, source), target_char, i, quad)
+            item["elapsed_cell"] = round(time.time() - started, 2)
+            yield json.dumps({"type": "cell", **item},
+                             ensure_ascii=False) + "\n"
+    yield json.dumps({"type": "done",
+                      "elapsed": round(time.time() - started, 3)},
+                     ensure_ascii=False) + "\n"
 
 
 def score_image(*, image_bytes=None, image_path=None, target_char=None,

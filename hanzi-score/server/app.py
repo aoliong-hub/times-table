@@ -16,7 +16,7 @@ import os
 import sys
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
 
@@ -93,6 +93,15 @@ async def api_score(
         raise HTTPException(status_code=400, detail="图片打不开，换一张试试")
 
     try:
+        # 多格照片走 NDJSON 流式：打完一格推一格，首格可见时间≈单格耗时；
+        # 单格保持原 JSON 结构（向后兼容 curl/脚本）
+        if scorer.count_cells(data) > 1:
+            def gen():
+                for line in scorer.score_image_multi_stream(
+                        image_bytes=data, target_char=target_char):
+                    yield line
+            return StreamingResponse(gen(), media_type="application/x-ndjson",
+                                     headers={"X-Accel-Buffering": "no"})
         return scorer.score_image_multi(image_bytes=data, target_char=target_char)
     except scorer.ScoreError as exc:
         raise HTTPException(status_code=422, detail=exc.detail)

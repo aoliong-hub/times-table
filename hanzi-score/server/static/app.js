@@ -239,20 +239,18 @@
 
     fetch('api/score', { method: 'POST', body: form })
       .then(function (resp) {
-        return resp.json().then(function (data) {
-          return { ok: resp.ok, data: data };
-        }).catch(function () {
-          return { ok: false, data: { detail: '服务器返回的内容看不懂（HTTP ' + resp.status + '）' } };
-        });
-      })
-      .then(function (res) {
-        if (!res.ok) {
-          showError(res.data && res.data.detail ? res.data.detail : '打分失败，稍后再试。');
-          return;
+        var ctype = resp.headers.get('content-type') || '';
+        if (!resp.ok) {
+          return resp.json().catch(function () { return {}; }).then(function (d) {
+            showError(d && d.detail ? d.detail : '打分失败，稍后再试。');
+          });
         }
-        render(res.data);
+        // 多格照片是 NDJSON 流：打完一格推一格，逐格点亮
+        if (ctype.indexOf('ndjson') >= 0) return streamResults(resp);
+        return resp.json().then(render);
       })
-      .catch(function () {
+      .catch(function (err) {
+        console.log('[dbgCatch]', err && err.message);
         showError('连不上打分服务，检查一下服务是否还在运行。');
       })
       .then(function () {
@@ -260,11 +258,66 @@
       });
   }
 
+  /* 读 NDJSON 流：meta → cell… → done，每行一个 JSON */
+  function streamResults(resp) {
+    var reader = resp.body.getReader();
+    var dec = new TextDecoder();
+    var buf = '';
+    var firstShown = false;
+
+    function handle(d) {
+      if (d.type === 'single') { render(d); return; }   // 单格兼容
+      console.log('[dbg] 行类型', d.type);
+      if (d.type === 'meta') {
+        el.cellList.textContent = '';
+        var hint = document.createElement('div');
+        hint.className = 'cell-progress';
+        hint.textContent = '整页 ' + d.total_cells + ' 格，' +
+          d.count + ' 格写了字，正在逐格批改…';
+        el.cellList.appendChild(hint);
+        show(el.cellList);
+        return;
+      }
+      if (d.type === 'cell') {
+        var progress = el.cellList.querySelector('.cell-progress');
+        if (progress) progress.remove();
+        addCellRow(d);
+        if (!firstShown) {
+          firstShown = true;
+          el.cellList.children[0].classList.add('active');
+          renderDetail(d);
+        }
+      }
+    }
+
+    function pump() {
+      return reader.read().then(function (chunk) {
+        if (chunk.done) {
+          if (buf.trim()) { try { handle(JSON.parse(buf)); } catch (e) { /* 忽略坏行 */ } }
+          return;
+        }
+        buf += dec.decode(chunk.value, { stream: true });
+        var lines = buf.split('\n');
+        buf = lines.pop();
+        lines.forEach(function (line) {
+          if (!line.trim()) return;
+          try { handle(JSON.parse(line)); } catch (e) { /* 忽略坏行 */ }
+        });
+        return pump();
+      });
+    }
+    return pump();
+  }
+
   /* ---------- 渲染结果 ---------- */
 
   function render(data) {
-    if (data.results && data.results.length) {
-      renderCellList(data.results);
+    if (data.results && data.results.length) {      // 兼容旧整包结构
+      el.cellList.textContent = '';
+      data.results.forEach(function (r) { addCellRow(r); });
+      show(el.cellList);
+      el.cellList.children[0].classList.add('active');
+      renderDetail(data.results[0]);
       return;
     }
     hide(el.cellList);
@@ -272,32 +325,27 @@
   }
 
   /* 多格照片：顶部一格一个按钮，点谁下面显示谁的详情 */
-  function renderCellList(results) {
-    el.cellList.textContent = '';
-    results.forEach(function (r, i) {
-      var btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'cell-row' + (r.error ? ' bad' : '');
-      var text = '第 ' + (r.cell || i + 1) + ' 格';
-      if (r.error) {
-        text += '　' + r.error;
-      } else {
-        text += '　' + r.total + ' 分　' + (r.emoji || '') + (r.badge || r.level || '');
-        if (r.need_rewrite) text += '　✏️';
-      }
-      btn.textContent = text;
-      btn.addEventListener('click', function () {
-        Array.prototype.forEach.call(el.cellList.children, function (c) {
-          c.classList.remove('active');
-        });
-        btn.classList.add('active');
-        renderDetail(r);
+  function addCellRow(r) {
+    var idx = el.cellList.querySelectorAll('.cell-row').length;
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'cell-row' + (r.error ? ' bad' : '');
+    var text = '第 ' + (r.cell || idx + 1) + ' 格';
+    if (r.error) {
+      text += '　' + r.error;
+    } else {
+      text += '　' + r.total + ' 分　' + (r.emoji || '') + (r.badge || r.level || '');
+      if (r.need_rewrite) text += '　✏️';
+    }
+    btn.textContent = text;
+    btn.addEventListener('click', function () {
+      Array.prototype.forEach.call(el.cellList.children, function (c) {
+        c.classList.remove('active');
       });
-      el.cellList.appendChild(btn);
+      btn.classList.add('active');
+      renderDetail(r);
     });
-    show(el.cellList);
-    el.cellList.children[0].classList.add('active');
-    renderDetail(results[0]);
+    el.cellList.appendChild(btn);
   }
 
   function renderDetail(data) {
