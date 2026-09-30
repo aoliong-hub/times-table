@@ -289,8 +289,8 @@
     return inside;
   }
   function activateCell(cellNum) {
-    var btn = el.cellList.querySelector('.cell-row[data-cell="' + cellNum + '"]');
-    if (btn) btn.click();
+    var item = cellItems[cellNum];
+    if (item) renderDetail(item);
   }
 
   /* 读 NDJSON 流：meta → cell… → done，每行一个 JSON */
@@ -299,6 +299,9 @@
     var dec = new TextDecoder();
     var buf = '';
     var firstShown = false;
+    var metaTotal = 0;
+    var scoredCount = 0;
+    var progressHint = null;
 
     function handle(d) {
       if (d.type === 'single') {
@@ -313,7 +316,6 @@
         render(d);
         return;
       }   // 单格兼容
-      console.log('[dbg] 行类型', d.type);
       if (d.type === 'segments') {
         if (d.image) {
           el.segmentsOverlay.src = d.image;
@@ -326,23 +328,32 @@
         return;
       }
       if (d.type === 'meta') {
+        metaTotal = d.total_cells;
         el.cellList.textContent = '';
-        var hint = document.createElement('div');
-        hint.className = 'cell-progress';
-        hint.textContent = '整页 ' + d.total_cells + ' 格，' +
+        progressHint = document.createElement('div');
+        progressHint.className = 'cell-progress';
+        progressHint.textContent = '整页 ' + d.total_cells + ' 格，' +
           d.count + ' 格写了字，正在逐格批改…';
-        el.cellList.appendChild(hint);
+        el.cellList.appendChild(progressHint);
         show(el.cellList);
         return;
       }
       if (d.type === 'cell') {
-        var progress = el.cellList.querySelector('.cell-progress');
-        if (progress) progress.remove();
-        addCellRow(d);
+        cellItems[d.cell || 0] = d;
+        scoredCount += 1;
+        if (progressHint) {
+          progressHint.textContent = '整页 ' + metaTotal + ' 格，已批改 ' +
+            scoredCount + ' 格…';
+        }
         if (!firstShown) {
           firstShown = true;
-          el.cellList.children[0].classList.add('active');
           renderDetail(d);
+        }
+      }
+      if (d.type === 'done') {
+        if (progressHint) {
+          progressHint.textContent = '整页 ' + metaTotal + ' 格，写了字并批改 ' +
+            scoredCount + ' 格，用时 ' + (d.elapsed || '?') + ' 秒';
         }
       }
     }
@@ -376,10 +387,8 @@
       hide(el.segmentsOverlay);
     }
     if (data.results && data.results.length) {      // 兼容旧整包结构
-      el.cellList.textContent = '';
-      data.results.forEach(function (r) { addCellRow(r); });
-      show(el.cellList);
-      el.cellList.children[0].classList.add('active');
+      data.results.forEach(function (r) { cellItems[r.cell || 0] = r; });
+      hide(el.cellList);
       renderDetail(data.results[0]);
       return;
     }
@@ -387,32 +396,8 @@
     renderDetail(data);
   }
 
-  /* 多格照片：顶部一格一个按钮，点谁下面显示谁的详情 */
+  /* 多格照片：格子的数据存这里，总览图点格子切换详情 */
   var cellItems = {};
-  function addCellRow(r) {
-    var idx = el.cellList.querySelectorAll('.cell-row').length;
-    var btn = document.createElement('button');
-    btn.type = 'button';
-    btn.dataset.cell = r.cell || (idx + 1);
-    cellItems[r.cell || (idx + 1)] = r;
-    btn.className = 'cell-row' + (r.error ? ' bad' : '');
-    var text = '第 ' + (r.cell || idx + 1) + ' 格';
-    if (r.error) {
-      text += '　' + r.error;
-    } else {
-      text += '　' + r.total + ' 分　' + (r.emoji || '') + (r.badge || r.level || '');
-      if (r.need_rewrite) text += '　✏️';
-    }
-    btn.textContent = text;
-    btn.addEventListener('click', function () {
-      Array.prototype.forEach.call(el.cellList.children, function (c) {
-        c.classList.remove('active');
-      });
-      btn.classList.add('active');
-      renderDetail(r);
-    });
-    el.cellList.appendChild(btn);
-  }
 
   function renderDetail(data) {
     el.scoreNum.textContent = data.total;
@@ -423,7 +408,8 @@
       (data.badge || data.level || '');
 
     var charText = '';
-    if (data.char) charText = '认出来的字：' + data.char;
+    if (data.cell) charText = '第 ' + data.cell + ' 格　';
+    if (data.char) charText += '认出来的字：' + data.char;
     if (data.target_char) {
       charText += (charText ? '　' : '') + '要写的字：' + data.target_char;
       if (data.char_match === false) charText += '（写的不是这个字）';

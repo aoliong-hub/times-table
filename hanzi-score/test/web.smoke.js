@@ -389,12 +389,9 @@ it('NDJSON 流式：多格结果逐格点亮', async () => {
   await flush();
   await new Promise((r) => setTimeout(r, 20));
   const rows = doc.querySelectorAll('#cell-list .cell-row');
-  assert(rows.length === 3, '流式后应有 3 个格子按钮，实际 ' + rows.length);
-  assert(doc.querySelector('#cell-list .cell-progress') === null,
-    '进度提示应已被移除');
-  assert(/78 分/.test(rows[0].textContent), '第 1 格按钮应带分数');
-  assert(/笔迹太淡/.test(rows[2].textContent), '错误格应显示原因');
-  assert(rows[0].classList.contains('active'), '首格应自动选中');
+  assert(rows.length === 0, '分数按钮已删除，不应再生成，实际 ' + rows.length);
+  assert(/写了字并批改 3 格/.test(doc.getElementById('cell-list').textContent),
+    'done 后应显示批改汇总');
   assert(doc.getElementById('score-num').textContent === '78', '详情应显示首格分数');
 });
 
@@ -415,21 +412,11 @@ it('多格结果按格子列分数，点一个显示那个格的详情', async (
   doc.getElementById('score-btn').click();
   await flush();
 
-  const list = doc.getElementById('cell-list');
-  assert(!hidden(list), '多格时应显示格子列表');
-  const rows = list.querySelectorAll('.cell-row');
-  assert(rows.length === 2, `应有 2 个格子按钮，实际 ${rows.length}`);
-  assert(/80 分/.test(rows[0].textContent) && /汉|优秀|写得不错/.test(rows[0].textContent),
-    '格子按钮应带分数和等级');
-  assert(/✏️/.test(rows[1].textContent), '需重写的格子应有标记');
   assert(doc.getElementById('score-num').textContent === '80', '默认显示第 1 格');
-  // 点第 2 格切换详情
-  rows[1].dispatchEvent(new win.Event('click', { bubbles: true }));
-  assert(doc.getElementById('score-num').textContent === '40', '点第 2 格应切换详情');
-  assert(rows[1].classList.contains('active') && !rows[0].classList.contains('active'),
-    '高亮应跟随切换');
-  assert(doc.getElementById('result').classList.contains('need-rewrite'),
-    '切到需重写的格子后结果卡应有重写样式');
+  assert(doc.getElementById('char-line').textContent.indexOf('第 1 格') >= 0,
+    '详情应标注格号');
+  assert(doc.getElementById('char-line').textContent.indexOf('汉') >= 0,
+    '详情应显示第 1 格的认字');
 });
 
 it('接口报错时把服务端的说明显示出来', async () => {  const { win, doc } = boot({ scoreStatus: 400 });
