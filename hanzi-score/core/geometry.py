@@ -1272,6 +1272,79 @@ def count_cells(source):
         return 0
 
 
+def correct_page(bgr):
+    """整页纠偏：先跑一遍格子分割，取所有格子的外扩外框做透视拉正。
+
+    返回 (拉正图, 映射后的格子四边形列表, 是否发生了纠偏)。
+    格子不重新分割——原始四边形经同一变换矩阵映射，位置不会错。
+    """
+    try:
+        cells = find_cells(bgr)
+        if len(cells) < 1:
+            return bgr, [], False
+        pts = np.vstack([np.asarray(q, np.float32) for q in cells]).astype(np.float32)
+        hull = cv2.convexHull(pts)
+        approx = cv2.approxPolyDP(hull, 0.02 * cv2.arcLength(hull, True), True)
+        if len(approx) == 4:
+            quad = approx.reshape(4, 2).astype(np.float32)
+        else:
+            quad = cv2.boxPoints(cv2.minAreaRect(pts)).astype(np.float32)
+        quad = _order_quad(quad)
+        center = pts.mean(axis=0)
+        quad = center + (quad - center) * 1.04   # 外扩一点，把最外圈格线包进来
+        warped, M = warp_page(bgr, quad)
+        if len(cells) == 1:
+            dh, dw = warped.shape[:2]
+            mapped = [np.array([[0, 0], [dw, 0], [dw, dh], [0, dh]], np.float32)]
+        else:
+            mapped = []
+            for q in cells:
+                q4 = np.asarray(q, np.float32).reshape(-1, 2)[:4]
+                mapped.append(
+                    cv2.perspectiveTransform(q4.reshape(-1, 1, 2), M)
+                    .reshape(4, 2))
+        return warped, mapped, True
+    except Exception:
+        return bgr, [], False
+
+
+def find_page_quad(bgr):
+    """找整页的外框四角（纸张边缘或最外圈格线），用于整页透视拉正。
+
+    找不到（太斜/线太淡/面积不够）返回 None，调用方退回原图。
+    """
+    try:
+        mask = _clean_mask(_grid_line_mask(bgr))
+        mask_u8 = mask.astype(np.uint8) * 255
+        contours, _ = cv2.findContours(mask_u8, cv2.RETR_EXTERNAL,
+                                       cv2.CHAIN_APPROX_SIMPLE)
+        if not contours:
+            return None
+        h, w = bgr.shape[:2]
+        contour = max(contours, key=cv2.contourArea)
+        if cv2.contourArea(contour) < 0.15 * w * h:
+            return None
+        return _quad_from_contour(contour, 0.3 * w * h)
+    except Exception:
+        return None
+
+
+def warp_page(bgr, quad, max_side=1400):
+    """整页按外框四角透视拉正（保持长宽比，最长边不超过 max_side）。
+
+    返回 (拉正图, 变换矩阵 M)：原始坐标 -> 拉正坐标。
+    """
+    quad = _order_quad(np.asarray(quad, np.float32))
+    xs, ys = quad[:, 0], quad[:, 1]
+    w = float(xs.max() - xs.min())
+    h = float(ys.max() - ys.min())
+    scale = min(1.0, max_side / max(w, h, 1.0))
+    dw, dh = max(32, int(round(w * scale))), max(32, int(round(h * scale)))
+    dst = np.array([[0, 0], [dw, 0], [dw, dh], [0, dh]], np.float32)
+    M = cv2.getPerspectiveTransform(quad, dst)
+    return cv2.warpPerspective(bgr, M, (dw, dh)), M
+
+
 def extract(source, char=None, quad=None):
     """总入口：照片（bytes/路径）→ 几何指标。永不抛异常。
 

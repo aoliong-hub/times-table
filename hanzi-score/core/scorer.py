@@ -179,6 +179,54 @@ def _segments_overlay(img, cells, results):
         return None, []
 
 
+def prepare_page(*, image_bytes=None, image_path=None):
+    """交互式打分第一步：整页纠偏 + 分割预览，不做 OCR 和打分。
+
+    返回 {"count", "corrected", "quads", "width", "height"}：
+    corrected 是拉正图的 data URI，quads 是每格四边形（拉正图坐标）。
+    """
+    img = None
+    try:
+        if image_bytes is not None:
+            img = cv2.imdecode(np.frombuffer(image_bytes, np.uint8),
+                               cv2.IMREAD_COLOR)
+        else:
+            img = cv2.imread(image_path)
+    except Exception:
+        img = None
+    if img is None:
+        raise ScoreError("图片读不开，换一张试试。")
+    corrected, mapped, _ = geometry.correct_page(img)
+    h, w = corrected.shape[:2]
+    ok, buf = cv2.imencode(".jpg", _downscale_for_uri(corrected, 900),
+                           [cv2.IMWRITE_JPEG_QUALITY, 88])
+    if not ok:
+        raise ScoreError("页面截图失败")
+    quads = [[[float(round(v, 1)) for v in p] for p in q] for q in mapped]
+    return {
+        "count": len(mapped),
+        "corrected": "data:image/jpeg;base64," + base64.b64encode(buf).decode(),
+        "quads": quads,
+        "width": w,
+        "height": h,
+    }
+
+
+def score_page_cell(*, image_bytes=None, image_path=None, quad, cell=1):
+    """交互式打分第二步：只批改用户点中的那一格。"""
+    return score_image(image_bytes=image_bytes, image_path=image_path,
+                       quad=quad, include_cell_image=True)
+
+
+def _downscale_for_uri(bgr, max_side):
+    h, w = bgr.shape[:2]
+    scale = min(1.0, float(max_side) / max(h, w))
+    if scale < 1.0:
+        return cv2.resize(bgr, None, fx=scale, fy=scale,
+                          interpolation=cv2.INTER_AREA)
+    return bgr
+
+
 def count_cells(image_bytes):
     """轻量统计这张照片里有几个田字格（app 用于选择流式/普通响应）。"""
     return geometry.count_cells(image_bytes)

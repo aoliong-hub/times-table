@@ -14,6 +14,9 @@ import argparse
 import io
 import os
 import sys
+import uuid
+
+from fastapi.concurrency import run_in_threadpool
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse, StreamingResponse
@@ -33,6 +36,11 @@ DEFAULT_PORT = int(os.environ.get("HANZI_PORT", "8360"))
 
 app = FastAPI(title="田字格小老师", description="一年级汉字书写打分")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+# 交互式打分的会话状态：prepare 生成的 id -> (原图字节, 格子四边形)。
+# 单用户内网工具，只留最近几张，换一张旧的自动淘汰。
+_PAGE_STATE = {}
+_PAGE_STATE_MAX = 4
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -65,6 +73,49 @@ def get_rubric():
         "pass_score": rubric.PASS_SCORE,
         "full_marks": rubric.FULL_MARKS,
     }
+
+
+@app.post("/api/prepare")
+async def api_prepare(file: UploadFile = File(...)):
+    """第一步：纠偏 + 分割预览（不做 OCR 和打分）。"""
+    data = await file.read()
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="图片太大了，超过 8MB")
+    try:
+        Image.open(io.BytesIO(data)).verify()
+    except Exception:
+        raise HTTPException(status_code=400, detail="这不是能打开的图片")
+    try:
+        result = await run_in_threadpool(scorer.prepare_page, image_bytes=data)
+    except scorer.ScoreError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    page_id = uuid.uuid4().hex[:12]
+    _PAGE_STATE[page_id] = (data, result["quads"])
+    while len(_PAGE_STATE) > _PAGE_STATE_MAX:
+        _PAGE_STATE.pop(next(iter(_PAGE_STATE)))
+    return {"id": page_id, "count": result["count"],
+            "corrected": result["corrected"], "quads": result["quads"],
+            "width": result["width"], "height": result["height"]}
+
+
+@app.post("/api/score_cell")
+async def api_score_cell(page_id: str = Form(...), cell: int = Form(...)):
+    """第二步：用户点中某格后才做这一格的 OCR + 打分。"""
+    state = _PAGE_STATE.get(page_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="页面会话过期了，重新上传一次。")
+    image_bytes, quads = state
+    if not (1 <= cell <= len(quads)):
+        raise HTTPException(status_code=400, detail=f"格子编号超出范围（1~{len(quads)}）")
+    quad = quads[cell - 1]
+    try:
+        result = await run_in_threadpool(
+            scorer.score_page_cell, image_bytes=image_bytes, quad=quad, cell=cell)
+    except scorer.ScoreError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    result["cell"] = cell
+    return result
 
 
 @app.post("/api/score")

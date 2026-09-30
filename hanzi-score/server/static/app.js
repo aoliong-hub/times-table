@@ -1,4 +1,4 @@
-/* 田字格小老师 —— 上传、打分、渲染结果（单卡片两状态） */
+/* 田字格小老师 —— 上传 → 拉正分割预览 → 点格子批改（两步交互） */
 (function () {
   'use strict';
 
@@ -16,12 +16,15 @@
     resetBtn: document.getElementById('reset-btn'),
     error: document.getElementById('error'),
     result: document.getElementById('result'),
+    pageWrap: document.getElementById('page-wrap'),
+    correctedImage: document.getElementById('corrected-image'),
+    cellLayer: document.getElementById('cell-layer'),
+    pageHint: document.getElementById('page-hint'),
+    detail: document.getElementById('detail'),
     scoreRing: document.getElementById('score-ring'),
     scoreNum: document.getElementById('score-num'),
     levelBadge: document.getElementById('level-badge'),
     charLine: document.getElementById('char-line'),
-    cellList: document.getElementById('cell-list'),
-    segmentsOverlay: document.getElementById('segments-overlay'),
     dims: document.getElementById('dims'),
     improveWrap: document.getElementById('improve-wrap'),
     improvements: document.getElementById('improvements'),
@@ -38,11 +41,23 @@
 
   var currentFile = null;
   var busy = false;
+  /* 当前页的会话状态：服务端 id、每格四边形、已批改的结果 */
+  var page = { id: null, quads: [], width: 0, height: 0, results: {} };
 
   /* ---------- 小工具 ---------- */
 
   function show(node) { node.classList.remove('hidden'); }
   function hide(node) { node.classList.add('hidden'); }
+
+  function showError(msg) {
+    el.error.textContent = msg;
+    show(el.error);
+  }
+
+  function clearError() {
+    el.error.textContent = '';
+    hide(el.error);
+  }
 
   /* ---------- 对比图图层控制 ---------- */
   /* 全部/红/黄/绿是一组单选（一次只亮一个）；「只看标准」与这组互斥：
@@ -78,7 +93,6 @@
            && img.dataset.on === '1') ? '' : 'none';
       });
     });
-    // 高亮：单选组里选中的那个；只看标准模式下其它按钮全部变灰
     ['all'].concat(LAYER_NAMES).forEach(function (name) {
       var btn = layerBtn(name);
       if (!btn) return;
@@ -124,16 +138,6 @@
     });
   }
 
-  function showError(msg) {
-    el.error.textContent = msg;
-    show(el.error);
-  }
-
-  function clearError() {
-    el.error.textContent = '';
-    hide(el.error);
-  }
-
   /* ---------- 选图 ---------- */
 
   function pickFile(file) {
@@ -162,13 +166,17 @@
 
   function resetAll() {
     currentFile = null;
+    page = { id: null, quads: [], width: 0, height: 0, results: {} };
     el.fileInput.value = '';
     if (el.preview.src) URL.revokeObjectURL(el.preview.src);
     el.preview.removeAttribute('src');
+    el.correctedImage.removeAttribute('src');
+    el.cellLayer.textContent = '';
     show(el.dropHint);
     hide(el.previewWrap);
     hide(el.resetBtn);
     hide(el.result);
+    hide(el.detail);
     show(el.stepUpload);
     clearError();
     el.scoreBtn.disabled = true;
@@ -217,7 +225,7 @@
     resetAll();
   });
 
-  /* ---------- 打分 ---------- */
+  /* ---------- 第一步：拉正 + 分割预览（不做 OCR 和打分） ---------- */
 
   el.scoreBtn.addEventListener('click', function () {
     if (busy || !currentFile) return;
@@ -227,7 +235,7 @@
   function setBusy(on) {
     busy = on;
     el.scoreBtn.disabled = on || !currentFile;
-    el.scoreBtn.textContent = on ? '老师正在看…' : '开始打分';
+    el.scoreBtn.textContent = on ? '正在找格子…' : '识别格子';
     el.scoreBtn.classList.toggle('waiting', on);
   }
 
@@ -238,20 +246,16 @@
     var form = new FormData();
     form.append('file', currentFile);
 
-    fetch('api/score', { method: 'POST', body: form })
+    fetch('api/prepare', { method: 'POST', body: form })
       .then(function (resp) {
-        var ctype = resp.headers.get('content-type') || '';
         if (!resp.ok) {
           return resp.json().catch(function () { return {}; }).then(function (d) {
-            showError(d && d.detail ? d.detail : '打分失败，稍后再试。');
+            showError(d && d.detail ? d.detail : '没找到田字格，把格子拍正、拍满整张图再试一次。');
           });
         }
-        // 多格照片是 NDJSON 流：打完一格推一格，逐格点亮
-        if (ctype.indexOf('ndjson') >= 0) return streamResults(resp);
-        return resp.json().then(render);
+        return resp.json().then(renderPrepare);
       })
-      .catch(function (err) {
-        console.log('[dbgCatch]', err && err.message);
+      .catch(function () {
         showError('连不上打分服务，检查一下服务是否还在运行。');
       })
       .then(function () {
@@ -259,145 +263,136 @@
       });
   }
 
-  /* 总览图上点格子 = 点对应的分数按钮（point-in-quad 命中） */
-  var segQuads = null;
-  function bindOverlayClicks() {
-    if (!el.segmentsOverlay) return;
-    el.segmentsOverlay.onclick = function (ev) {
-      if (!segQuads || !segQuads.length) return;
-      var rect = el.segmentsOverlay.getBoundingClientRect();
-      var x = (ev.clientX - rect.left) * el.segmentsOverlay.naturalWidth / rect.width;
-      var y = (ev.clientY - rect.top) * el.segmentsOverlay.naturalHeight / rect.height;
-      for (var i = 0; i < segQuads.length; i++) {
-        if (pointInQuad(x, y, segQuads[i])) {
-          activateCell(i + 1);
-          return;
-        }
-      }
+  function renderPrepare(data) {
+    page = { id: data.id, quads: data.quads || [], width: data.width,
+             height: data.height, results: {} };
+
+    el.correctedImage.src = data.corrected;
+    el.cellLayer.textContent = '';
+    (data.quads || []).forEach(function (quad, i) {
+      var div = document.createElement('div');
+      div.className = 'cell-hot';
+      div.id = 'cell-' + (i + 1);
+      div.setAttribute('role', 'button');
+      div.setAttribute('aria-label', '第 ' + (i + 1) + ' 格');
+      var box = quadBBox(quad, data.width, data.height);
+      div.style.left = box.x + '%';
+      div.style.top = box.y + '%';
+      div.style.width = box.w + '%';
+      div.style.height = box.h + '%';
+      var num = document.createElement('span');
+      num.className = 'num';
+      num.textContent = String(i + 1);
+      div.appendChild(num);
+      div.addEventListener('click', function () { scoreCell(i + 1); });
+      el.cellLayer.appendChild(div);
+    });
+
+    show(el.result);
+    hide(el.stepUpload);
+    show(el.resetBtn);
+    hide(el.detail);
+    setPageHint('共 ' + data.count + ' 格，点一个格子开始批改');
+    el.result.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    // 单格照片：不用再点，直接批改
+    if (data.count === 1) scoreCell(1);
+  }
+
+  function quadBBox(quad, width, height) {
+    var xs = quad.map(function (p) { return p[0]; });
+    var ys = quad.map(function (p) { return p[1]; });
+    var x0 = Math.min.apply(null, xs);
+    var x1 = Math.max.apply(null, xs);
+    var y0 = Math.min.apply(null, ys);
+    var y1 = Math.max.apply(null, ys);
+    var w = width || 1;
+    var h = height || 1;
+    return {
+      x: (x0 / w) * 100,
+      y: (y0 / h) * 100,
+      w: ((x1 - x0) / w) * 100,
+      h: ((y1 - y0) / h) * 100
     };
   }
-  function pointInQuad(x, y, quad) {
-    var inside = false;
-    for (var i = 0, j = quad.length - 1; i < quad.length; j = i++) {
-      var xi = quad[i][0], yi = quad[i][1];
-      var xj = quad[j][0], yj = quad[j][1];
-      if ((yi > y) !== (yj > y) &&
-          x < (xj - xi) * (y - yi) / (yj - yi) + xi) {
-        inside = !inside;
-      }
-    }
-    return inside;
-  }
-  function activateCell(cellNum) {
-    var item = cellItems[cellNum];
-    if (item) renderDetail(item);
+
+  function setPageHint(text) {
+    el.pageHint.textContent = text;
   }
 
-  /* 读 NDJSON 流：meta → cell… → done，每行一个 JSON */
-  function streamResults(resp) {
-    var reader = resp.body.getReader();
-    var dec = new TextDecoder();
-    var buf = '';
-    var firstShown = false;
-    var metaTotal = 0;
-    var scoredCount = 0;
-    var progressHint = null;
-
-    function handle(d) {
-      if (d.type === 'single') {
-        if (d.segments_overlay) {
-          segQuads = d.segments_quads || null;
-          bindOverlayClicks();
-          el.segmentsOverlay.src = d.segments_overlay;
-          show(el.segmentsOverlay);
-        } else {
-          hide(el.segmentsOverlay);
-        }
-        render(d);
-        return;
-      }   // 单格兼容
-      if (d.type === 'segments') {
-        if (d.image) {
-          el.segmentsOverlay.src = d.image;
-          show(el.segmentsOverlay);
-          if (d.quads) {
-            segQuads = d.quads;
-            bindOverlayClicks();
-          }
-        }
-        return;
-      }
-      if (d.type === 'meta') {
-        metaTotal = d.total_cells;
-        el.cellList.textContent = '';
-        progressHint = document.createElement('div');
-        progressHint.className = 'cell-progress';
-        progressHint.textContent = '整页 ' + d.total_cells + ' 格，' +
-          d.count + ' 格写了字，正在逐格批改…';
-        el.cellList.appendChild(progressHint);
-        show(el.cellList);
-        return;
-      }
-      if (d.type === 'cell') {
-        cellItems[d.cell || 0] = d;
-        scoredCount += 1;
-        if (progressHint) {
-          progressHint.textContent = '整页 ' + metaTotal + ' 格，已批改 ' +
-            scoredCount + ' 格…';
-        }
-        if (!firstShown) {
-          firstShown = true;
-          renderDetail(d);
-        }
-      }
-      if (d.type === 'done') {
-        if (progressHint) {
-          progressHint.textContent = '整页 ' + metaTotal + ' 格，写了字并批改 ' +
-            scoredCount + ' 格，用时 ' + (d.elapsed || '?') + ' 秒';
-        }
-      }
-    }
-
-    function pump() {
-      return reader.read().then(function (chunk) {
-        if (chunk.done) {
-          if (buf.trim()) { try { handle(JSON.parse(buf)); } catch (e) { /* 忽略坏行 */ } }
-          return;
-        }
-        buf += dec.decode(chunk.value, { stream: true });
-        var lines = buf.split('\n');
-        buf = lines.pop();
-        lines.forEach(function (line) {
-          if (!line.trim()) return;
-          try { handle(JSON.parse(line)); } catch (e) { /* 忽略坏行 */ }
-        });
-        return pump();
-      });
-    }
-    return pump();
+  function cellDiv(n) {
+    return document.getElementById('cell-' + n);
   }
 
-  /* ---------- 渲染结果 ---------- */
+  /* ---------- 第二步：点中的格子才做 OCR + 打分 ---------- */
 
-  function render(data) {
-    if (data.segments_overlay) {
-      el.segmentsOverlay.src = data.segments_overlay;
-      show(el.segmentsOverlay);
-    } else {
-      hide(el.segmentsOverlay);
-    }
-    if (data.results && data.results.length) {      // 兼容旧整包结构
-      data.results.forEach(function (r) { cellItems[r.cell || 0] = r; });
-      hide(el.cellList);
-      renderDetail(data.results[0]);
+  function scoreCell(n) {
+    var res = page.results[n];
+    if (res) {                     // 批改过：直接看详情
+      setActiveCell(n);
+      renderDetail(res);
       return;
     }
-    hide(el.cellList);
-    renderDetail(data);
+    var div = document.getElementById('cell-' + n);
+    if (!div || busyCell[n]) return;
+    busyCell[n] = true;
+    div.classList.add('loading');
+    setPageHint('第 ' + n + ' 格批改中…');
+
+    var form = new FormData();
+    form.append('page_id', page.id);
+    form.append('cell', String(n));
+
+    fetch('api/score_cell', { method: 'POST', body: form })
+      .then(function (resp) {
+        return resp.json().then(function (d) {
+          return { ok: resp.ok, data: d };
+        });
+      })
+      .then(function (r) {
+        delete busyCell[n];
+        div.classList.remove('loading');
+        if (r.ok) {
+          page.results[n] = r.data;
+          updateCellDiv(n);
+          setActiveCell(n);
+          renderDetail(r.data);
+          var done = Object.keys(page.results).length;
+          setPageHint('已批改 ' + done + ' / ' + page.quads.length + ' 格，继续点格子看结果');
+        } else {
+          div.classList.add('err');
+          var num = div.querySelector('.num');
+          if (num) num.textContent = '✗';
+          setPageHint('第 ' + n + ' 格：' + (r.data && r.data.detail
+            ? r.data.detail : '没批改出来'));
+        }
+      })
+      .catch(function () {
+        delete busyCell[n];
+        div.classList.remove('loading');
+        setPageHint('连不上打分服务，检查一下服务是否还在运行。');
+      });
+  }
+  var busyCell = {};
+
+  function updateCellDiv(n) {
+    var div = document.getElementById('cell-' + n);
+    var res = page.results[n];
+    if (!div || !res) return;
+    div.classList.remove('loading');
+    div.classList.add(res.total >= 80 ? 'good' : (res.total >= 60 ? 'mid' : 'bad'));
+    var num = div.querySelector('.num');
+    if (num) num.textContent = n + '·' + res.total;
   }
 
-  /* 多格照片：格子的数据存这里，总览图点格子切换详情 */
-  var cellItems = {};
+  function setActiveCell(n) {
+    var prev = el.cellLayer.querySelector('.cell-hot.active');
+    if (prev) prev.classList.remove('active');
+    var div = document.getElementById('cell-' + n);
+    if (div) div.classList.add('active');
+  }
+
+  /* ---------- 渲染单格详情 ---------- */
 
   function renderDetail(data) {
     el.scoreNum.textContent = data.total;
@@ -481,7 +476,7 @@
       hide(el.rewrite);
     }
 
-    // 本地几何比对：左 = 上传照片，右 = 多层叠加的米字格对比（可按色筛选）
+    // 本地几何比对：左 = 这一格的手写，右 = 多层叠加的米字格对比（可按色筛选）
     el.geometryRows.textContent = '';
     var geo = data.geometry;
     var ov = data.geometry_overlay;
@@ -493,8 +488,7 @@
       });
       if (ov) {
         // 底图 = 米字格；ink = 黑色手写；std = 深灰标准字形（只看标准用）
-        // 多格详情：左侧显示这一格自己的裁剪图（而不是整张原图）
-    el.geometryOriginal.src = data.cell_image || el.preview.src || '';
+        el.geometryOriginal.src = data.cell_image || el.preview.src || '';
         el.geometryGrid.src = ov.grid || '';
         el.geometryInk.src = ov.ink || '';
         if (ov.std) {
@@ -511,7 +505,7 @@
           var btn = layerBtn(name);
           if (btn) btn.disabled = !ov[name];
         });
-        // 每次重打分复位：全部档位显示、退出只看标准
+        // 每次切格复位：全部档位显示、退出只看标准
         currentFilter = 'all';
         setStandardOnly(false);
         show(el.geometry);
@@ -524,11 +518,12 @@
     if (typeof data.elapsed === 'number') bits.push('用时 ' + data.elapsed.toFixed(1) + ' 秒');
     el.meta.textContent = bits.join('　·　');
 
-    // 切到结果态
+    // 切到详情态
     hide(el.stepUpload);
     show(el.result);
     show(el.resetBtn);
-    el.result.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    show(el.detail);
+    el.detail.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   /* ---------- 启动：健康检查（失败不打扰用户，打分时自会报错） ---------- */

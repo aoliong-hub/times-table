@@ -28,75 +28,78 @@
           </div>
         </div>
 
-        <button id="score-btn" class="btn-primary" type="button" disabled>开始打分</button>
+        <button id="score-btn" class="btn-primary" type="button" disabled>识别格子</button>
 
         <p id="file-name" class="file-name hidden"></p>
         <p id="error" class="error hidden" role="alert"></p>
       </div>
 
-      <!-- 状态二：批改结果 -->
+      <!-- 状态二：拉正 + 分割预览；点格子才批改 -->
       <div id="result" class="hidden" aria-label="批改结果" aria-live="polite">
-        <img id="segments-overlay" class="segments-overlay hidden"
-             alt="分割结果总览：绿=优良 黄=合格 红=需重写 灰=没写清">
-        <div id="cell-list" class="cell-list hidden" role="tablist"
-             aria-label="各格子的分数，点一个看详情"></div>
-
-        <div class="score-line">
-          <div id="score-ring" class="score-ring">
-            <span id="score-num">0</span><small>/100</small>
-          </div>
-          <div class="score-side">
-            <p id="level-badge" class="level-badge">—</p>
-            <p id="char-line" class="char-line"></p>
-          </div>
+        <div id="page-wrap" class="page-wrap">
+          <img id="corrected-image" class="corrected-image" alt="拉正后的练习页">
+          <div id="cell-layer" class="cell-layer" aria-label="识别到的格子，点一个开始批改"></div>
         </div>
+        <p id="page-hint" class="page-hint"></p>
 
-        <div id="rewrite" class="rewrite hidden">
-          <h3>✏️ 这个字建议再写一遍</h3>
-          <p id="rewrite-reason" class="rewrite-reason"></p>
-          <p id="rewrite-advice" class="rewrite-advice"></p>
+        <div id="detail" class="hidden">
+          <div class="score-line">
+            <div id="score-ring" class="score-ring">
+              <span id="score-num">0</span><small>/100</small>
+            </div>
+            <div class="score-side">
+              <p id="level-badge" class="level-badge">—</p>
+              <p id="char-line" class="char-line"></p>
+            </div>
+          </div>
+
+          <div id="rewrite" class="rewrite hidden">
+            <h3>✏️ 这个字建议再写一遍</h3>
+            <p id="rewrite-reason" class="rewrite-reason"></p>
+            <p id="rewrite-advice" class="rewrite-advice"></p>
+          </div>
+
+          <div id="geometry" class="geometry hidden">
+            <div class="compare-row">
+              <figure class="compare-cell">
+                <img id="geometry-original" class="compare-img" alt="这一格的手写">
+                <figcaption>你的字</figcaption>
+              </figure>
+              <figure class="compare-cell">
+                <div id="overlay-stack" class="overlay-stack">
+                  <img id="geometry-grid" class="compare-img" alt="标准对比（米字格）">
+                  <img id="geometry-std" class="compare-img layer" alt="标准字形">
+                  <img id="geometry-layer-green" class="compare-img layer" alt="">
+                  <img id="geometry-layer-yellow" class="compare-img layer" alt="">
+                  <img id="geometry-layer-red" class="compare-img layer" alt="">
+                  <img id="geometry-ink" class="compare-img layer" alt="标准对比与手写叠加">
+                  <img id="geometry-cl-green" class="compare-img layer" alt="">
+                  <img id="geometry-cl-yellow" class="compare-img layer" alt="">
+                  <img id="geometry-cl-red" class="compare-img layer" alt="">
+                </div>
+                <figcaption>标准对比</figcaption>
+              </figure>
+            </div>
+            <div id="layer-btns" class="layer-btns" role="group" aria-label="只看某一档笔画">
+              <button type="button" data-layer="all" class="active">全部</button>
+              <button type="button" data-layer="red">🔴 没写对</button>
+              <button type="button" data-layer="yellow">🟡 部分到位</button>
+              <button type="button" data-layer="green">🟢 写到位</button>
+              <button type="button" id="btn-standard" title="隐藏手写，只看标准字">👁 只看标准</button>
+            </div>
+          </div>
+
+          <details id="detail-box" class="detail-box">
+            <summary>维度得分与改进点</summary>
+            <div id="dims" class="dims"></div>
+            <div id="improve-wrap" class="improve hidden">
+              <h3>再改这几点</h3>
+              <ol id="improvements"></ol>
+            </div>
+            <ul id="geometry-rows" class="geometry-rows"></ul>
+            <p id="meta" class="meta"></p>
+          </details>
         </div>
-
-        <div id="geometry" class="geometry hidden">
-          <div class="compare-row">
-            <figure class="compare-cell">
-              <img id="geometry-original" class="compare-img" alt="上传的照片">
-              <figcaption>你的照片</figcaption>
-            </figure>
-            <figure class="compare-cell">
-              <div id="overlay-stack" class="overlay-stack">
-                <img id="geometry-grid" class="compare-img" alt="标准对比（米字格）">
-                <img id="geometry-std" class="compare-img layer" alt="标准字形">
-                <img id="geometry-layer-green" class="compare-img layer" alt="">
-                <img id="geometry-layer-yellow" class="compare-img layer" alt="">
-                <img id="geometry-layer-red" class="compare-img layer" alt="">
-                <img id="geometry-ink" class="compare-img layer" alt="标准对比与手写叠加">
-                <img id="geometry-cl-green" class="compare-img layer" alt="">
-                <img id="geometry-cl-yellow" class="compare-img layer" alt="">
-                <img id="geometry-cl-red" class="compare-img layer" alt="">
-              </div>
-              <figcaption>标准对比</figcaption>
-            </figure>
-          </div>
-          <div id="layer-btns" class="layer-btns" role="group" aria-label="只看某一档笔画">
-            <button type="button" data-layer="all" class="active">全部</button>
-            <button type="button" data-layer="red">🔴 没写对</button>
-            <button type="button" data-layer="yellow">🟡 部分到位</button>
-            <button type="button" data-layer="green">🟢 写到位</button>
-            <button type="button" id="btn-standard" title="隐藏手写，只看标准字">👁 只看标准</button>
-          </div>
-        </div>
-
-        <details id="detail-box" class="detail-box">
-          <summary>维度得分与改进点</summary>
-          <div id="dims" class="dims"></div>
-          <div id="improve-wrap" class="improve hidden">
-            <h3>再改这几点</h3>
-            <ol id="improvements"></ol>
-          </div>
-          <ul id="geometry-rows" class="geometry-rows"></ul>
-          <p id="meta" class="meta"></p>
-        </details>
 
         <div class="actions">
           <button id="reset-btn" class="btn-secondary hidden" type="button">📷 再写一个字</button>
